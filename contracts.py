@@ -8,6 +8,7 @@ Created on Sun Oct 4 2026
 """
 
 from finance.reporting import Results
+from webscraping.webpages import WebSOCKPage
 from support.mixins import Logging
 
 __version__ = "1.0.0"
@@ -17,7 +18,7 @@ __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class IKBRContractPage():
+class IKBRContractPage(WebSOCKPage):
     def __call__(self, *args, **kwargs):
         pass
 

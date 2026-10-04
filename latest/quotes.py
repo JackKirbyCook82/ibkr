@@ -11,6 +11,7 @@ from abc import ABC
 
 from finance.enumerations import Instrument
 from finance.reporting import Results
+from webscraping.webpages import WebSOCKPage
 from support.mixins import Logging
 
 __version__ = "1.0.0"
@@ -24,7 +25,7 @@ options_columns = ["ticker", "expire", "option", "strike", "datatime", "bid", "a
 stocks_columns = ["ticker", "datetime", "bid", "ask", "supply", "demand"]
 
 
-class IKBRQuotesLatestPage(ABC):
+class IKBRQuotesLatestPage(WebSOCKPage, ABC):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 

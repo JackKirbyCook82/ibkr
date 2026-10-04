@@ -11,6 +11,7 @@ from abc import ABC
 
 from finance.enumerations import Instrument
 from finance.reporting import Results
+from webscraping.webpages import WebSOCKPage
 from support.mixins import Logging
 
 __version__ = "1.0.0"
@@ -24,7 +25,7 @@ options_columns = ["ticker", "expire", "option", "strike", "datatime", "open", "
 stocks_columns = ["ticker", "datetime", "open", "close", "high", "low", "volume"]
 
 
-class IBKRBarsHistoryPage(ABC):
+class IBKRBarsHistoryPage(WebSOCKPage, ABC):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
