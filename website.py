@@ -19,9 +19,13 @@ from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = []
+__all__ = ["IbkrSocket", "IbkrPage", "IbkrDownloader"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
+
+
+class IkbrError(Exception): pass
+class IkbrSecurityError(IkbrError): pass
 
 
 class IbkrSocket(WebSOCKSource):
@@ -37,12 +41,10 @@ class IbkrSocket(WebSOCKSource):
         self.__host = host
         self.__port = port
 
-    def qualify(self, securities): self.connection.qualifyContracts(*securities)
+    def start(self): self.connection.connect(host=self.host, port=self.port, clientId=self.client)
+    def stop(self): self.connection.disconnect()
     def subscribe(self, security): self.connection.reqMktData(security)
     def unsubscribe(self, security): self.connection.cancelMktData(security)
-
-    def start(self): return self.connection.connect(host=self.host, port=self.port, clientId=self.client)
-    def stop(self): return self.connection.disconnect()
 
     @property
     def connected(self): return self.connection.isConnected()
@@ -57,15 +59,27 @@ class IbkrSocket(WebSOCKSource):
 class IbkrPage(WebSOCKPage):
     @singledispatchmethod
     @staticmethod
-    def security(product): raise TypeError(type(product))
+    def security(content): raise TypeError(type(content))
 
     @security.register(Contract)
     @staticmethod
-    def contract(contract): return Option(contract.ticker, contract.expire.strftime("%Y%m%d"), contract.strike, str(contract.option).upper()[0], "SMART")
+    def _(contract): return Option(contract.ticker, contract.expire.strftime("%Y%m%d"), contract.strike, str(contract.option).upper()[0], "SMART")
 
     @security.register(Symbol)
     @staticmethod
-    def symbol(symbol): return Stock(symbol.ticker, "SMART", "USD")
+    def _(symbol): return Stock(symbol.ticker, "SMART", "USD")
+
+    @singledispatchmethod
+    def qualify(self, security): raise TypeError(type(security))
+
+    @qualify.register(list)
+    def _(self, securities): return self.source.connection.qualifyContracts(*securities)
+
+    @qualify.register(Stock)
+    @qualify.register(Option)
+    def _(self, security):
+        try: return self.source.connection.qualifyContracts(security)[0]
+        except IndexError: raise IkbrSecurityError()
 
 
 class IbkrDownloader(Results, Logging, ABC):
