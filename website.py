@@ -8,10 +8,12 @@ Created on Sun Oct 4 2026
 """
 
 from abc import ABC
+from dataclasses import dataclass
 from functools import singledispatchmethod
 from ib_async import IB, Stock, Option
 
 from finance.querys import Symbol, Contract
+from finance.enumerations import Frequency
 from finance.reporting import Results
 from webscraping.webpages import WebSOCKPage
 from webscraping.websources import WebSOCKSource
@@ -26,6 +28,27 @@ __license__ = "MIT License"
 
 class IkbrError(Exception): pass
 class IkbrSecurityError(IkbrError): pass
+class IkbrFrequencyError(IkbrError): pass
+class IkbrFrequencyByError(IkbrFrequencyError): pass
+class IkbrFrequencySpanError(IkbrFrequencyError): pass
+
+
+@dataclass(frozen=False)
+class IbkrFrequency:
+    by: Frequency; code: str; span: list[int]
+
+    def __call__(self, span):
+        if span not in self.span: raise IkbrFrequencySpanError()
+        return f"{int(span)} {str(self.code)}{'s' if span > 1 else ''}"
+
+
+frequency_minutes = IbkrFrequency(Frequency.MINUTELY, "min", [1, 2, 3, 5, 10, 15, 20, 30])
+frequency_hours = IbkrFrequency(Frequency.HOURLY, "hour", [1, 2, 3, 4, 8])
+frequency_months = IbkrFrequency(Frequency.MONTHLY, "month", [1])
+frequency_weeks = IbkrFrequency(Frequency.WEEKLY, "week", [1])
+frequency_days = IbkrFrequency(Frequency.DAILY, "day", [1])
+frequencies = [frequency_months, frequency_weeks, frequency_days, frequency_hours, frequency_minutes]
+frequencies = {frequency.by: frequency for frequency in frequencies}
 
 
 class IbkrSocket(WebSOCKSource):
@@ -58,6 +81,18 @@ class IbkrSocket(WebSOCKSource):
 
 class IbkrPage(WebSOCKPage):
     @singledispatchmethod
+    def qualify(self, security): raise TypeError(type(security))
+
+    @qualify.register(list)
+    def _(self, securities): return self.source.connection.qualifyContracts(*securities)
+
+    @qualify.register(Stock)
+    @qualify.register(Option)
+    def _(self, security):
+        try: return self.source.connection.qualifyContracts(security)[0]
+        except IndexError: raise IkbrSecurityError()
+
+    @singledispatchmethod
     @staticmethod
     def security(content): raise TypeError(type(content))
 
@@ -69,17 +104,10 @@ class IbkrPage(WebSOCKPage):
     @staticmethod
     def _(symbol): return Stock(symbol.ticker, "SMART", "USD")
 
-    @singledispatchmethod
-    def qualify(self, security): raise TypeError(type(security))
-
-    @qualify.register(list)
-    def _(self, securities): return self.source.connection.qualifyContracts(*securities)
-
-    @qualify.register(Stock)
-    @qualify.register(Option)
-    def _(self, security):
-        try: return self.source.connection.qualifyContracts(security)[0]
-        except IndexError: raise IkbrSecurityError()
+    @staticmethod
+    def frequency(*args, frequency, **kwargs):
+        if frequency.by not in frequencies.keys(): raise IkbrFrequencyByError()
+        return frequencies[frequency.by](frequency.span)
 
 
 class IbkrDownloader(Results, Logging, ABC):
