@@ -37,7 +37,7 @@ class IkbrTicksHistoryPage(IbkrPage):
         start = IkbrFormatters.datetime(history.minimum)
         stop = IkbrFormatters.datetime(history.maximum)
         price = IkbrFormatters.price(price)
-        parameters = dict(startDateTime=, endDateTime=, numberOfTicks=, whatToShow=price, useRTH=True, ignoreSize=False)
+        parameters = dict(endDateTime=, numberOfTicks=1000, whatToShow=price, useRTH=True, ignoreSize=False)
         ticks = self.source.connection.reqHistoricalData(security, **parameters)
 
 
