@@ -8,47 +8,80 @@ Created on Sun Oct 4 2026
 """
 
 from abc import ABC
+from typing import Callable
 from dataclasses import dataclass
-from functools import singledispatchmethod
+from datetime import date as Date
 from ib_async import IB, Stock, Option
+from functools import singledispatchmethod
 
 from finance.querys import Symbol, Contract
-from finance.enumerations import Frequency
+from finance.enumerations import Frequency, Price
 from finance.reporting import Results
 from webscraping.webpages import WebSOCKPage
 from webscraping.websources import WebSOCKSource
+from support.custom import DateRange
 from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["IbkrSocket", "IbkrPage", "IbkrDownloader"]
+__all__ = ["IbkrSocket", "IbkrPage", "IbkrDownloader", "IkbrFormatters"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
 class IkbrError(Exception): pass
+class IkbrPriceError(IkbrError): pass
 class IkbrSecurityError(IkbrError): pass
 class IkbrFrequencyError(IkbrError): pass
 class IkbrFrequencyByError(IkbrFrequencyError): pass
 class IkbrFrequencySpanError(IkbrFrequencyError): pass
 
 
-@dataclass(frozen=False)
-class IbkrFrequency:
-    by: Frequency; code: str; span: list[int]
+@dataclass(frozen=True)
+class IbkrFrequency: by: Frequency; code: str; span: list[int]
 
-    def __call__(self, span):
-        if span not in self.span: raise IkbrFrequencySpanError()
-        return f"{int(span)} {str(self.code)}{'s' if span > 1 else ''}"
+@dataclass(frozen=True)
+class IbkrParser: name: str; parser: Callable
 
 
-frequency_minutes = IbkrFrequency(Frequency.MINUTELY, "min", [1, 2, 3, 5, 10, 15, 20, 30])
-frequency_hours = IbkrFrequency(Frequency.HOURLY, "hour", [1, 2, 3, 4, 8])
-frequency_months = IbkrFrequency(Frequency.MONTHLY, "month", [1])
-frequency_weeks = IbkrFrequency(Frequency.WEEKLY, "week", [1])
-frequency_days = IbkrFrequency(Frequency.DAILY, "day", [1])
-frequencies = [frequency_months, frequency_weeks, frequency_days, frequency_hours, frequency_minutes]
-frequencies = {frequency.by: frequency for frequency in frequencies}
+class IkbrFrequencies:
+    minutes = IbkrFrequency(Frequency.MINUTELY, "min", [1, 2, 3, 5, 10, 15, 20, 30])
+    hours = IbkrFrequency(Frequency.HOURLY, "hour", [1, 2, 3, 4, 8])
+    months = IbkrFrequency(Frequency.MONTHLY, "month", [1])
+    weeks = IbkrFrequency(Frequency.WEEKLY, "week", [1])
+    days = IbkrFrequency(Frequency.DAILY, "day", [1])
+
+    def __new__(cls, frequency):
+        by, span = frequency.by, frequency.span
+        frequencies = [cls.months, cls.weeks, cls.days, cls.hours, cls.minutes]
+        frequencies = {frequency.by: frequency for frequency in frequencies}
+        if by not in frequencies.keys(): raise IkbrFrequencyByError()
+        if span not in frequencies[by].span: raise IkbrFrequencySpanError()
+        return f"{int(span)} {str(frequencies[by].code)}{'s' if span > 1 else ''}"
+
+
+class IkbrFormatters:
+    @staticmethod
+    def frequency(frequency): return IkbrFrequencies(frequency)
+
+    @staticmethod
+    def duration(daterange):
+        assert isinstance(daterange, DateRange)
+        seconds = int((daterange.maximum - daterange.minimum).total_seconds())
+        return f"{seconds} S"
+
+    @staticmethod
+    def datetime(date):
+        assert isinstance(date, Date)
+        string = date.strftime("%Y%m%d %H:%M:%S")
+        return f"{string} US/Eastern"
+
+    @staticmethod
+    def price(price):
+        assert isinstance(price, (set, Price))
+        prices = {Price.TRADE: "TRADES", Price.MID: "MIDPOINT", Price.BID: "BID", Price.ASK: "ASK", {Price.BID, Price.ASK}: "BID_ASK"}
+        if price not in prices.keys: raise IkbrPriceError()
+        return prices[price]
 
 
 class IbkrSocket(WebSOCKSource):
@@ -103,11 +136,6 @@ class IbkrPage(WebSOCKPage):
     @security.register(Symbol)
     @staticmethod
     def _(symbol): return Stock(symbol.ticker, "SMART", "USD")
-
-    @staticmethod
-    def frequency(*args, frequency, **kwargs):
-        if frequency.by not in frequencies.keys(): raise IkbrFrequencyByError()
-        return frequencies[frequency.by](frequency.span)
 
 
 class IbkrDownloader(Results, Logging, ABC):

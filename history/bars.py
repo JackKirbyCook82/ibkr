@@ -9,7 +9,7 @@ Created on Sun Oct 4 2026
 
 from ib_async import Stock
 
-from ibkr.website import IbkrPage
+from ibkr.website import IbkrPage, IkbrFormatters
 from finance.querys import Symbol
 
 __version__ = "1.0.0"
@@ -33,6 +33,11 @@ class IkbrBarsHistoryPage(IbkrPage):
         contracts = self.execute(**parameters)
         return contracts
 
-    def execute(self, *args, **kwargs):
-        pass
+    def execute(self, *args, security, price, frequency, history, **kwargs):
+        stop = IkbrFormatters.datetime(history.maximum)
+        frequency = IkbrFormatters.frequency(frequency)
+        duration = IkbrFormatters.duration(history)
+        price = IkbrFormatters.price(price)
+        parameters = dict(endDateTime=stop, durationStr=duration, barSizeSetting=frequency, whatToShow=price, useRTH=True)
+        bars = self.source.connection.reqHistoricalData(security, **parameters)
 
