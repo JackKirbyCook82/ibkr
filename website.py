@@ -8,9 +8,7 @@ Created on Sun Oct 4 2026
 """
 
 from abc import ABC
-from typing import Callable
 from dataclasses import dataclass
-from datetime import date as Date
 from ib_async import IB, Stock, Option
 from functools import singledispatchmethod
 
@@ -19,7 +17,7 @@ from finance.enumerations import Frequency, Price
 from finance.reporting import Results
 from webscraping.webpages import WebSOCKPage
 from webscraping.websources import WebSOCKSource
-from support.custom import DateRange
+from support.meta import CollectionMeta
 from support.mixins import Logging
 
 __version__ = "1.0.0"
@@ -30,7 +28,6 @@ __license__ = "MIT License"
 
 
 class IkbrError(Exception): pass
-class IkbrPriceError(IkbrError): pass
 class IkbrSecurityError(IkbrError): pass
 class IkbrFrequencyError(IkbrError): pass
 class IkbrFrequencyByError(IkbrFrequencyError): pass
@@ -39,12 +36,7 @@ class IkbrFrequencySpanError(IkbrFrequencyError): pass
 
 @dataclass(frozen=True)
 class IbkrFrequency: by: Frequency; code: str; span: list[int]
-
-@dataclass(frozen=True)
-class IbkrParser: name: str; parser: Callable
-
-
-class IkbrFrequencies:
+class IkbrFrequencies(metaclass=CollectionMeta):
     minutes = IbkrFrequency(Frequency.MINUTELY, "min", [1, 2, 3, 5, 10, 15, 20, 30])
     hours = IbkrFrequency(Frequency.HOURLY, "hour", [1, 2, 3, 4, 8])
     months = IbkrFrequency(Frequency.MONTHLY, "month", [1])
@@ -53,35 +45,10 @@ class IkbrFrequencies:
 
     def __new__(cls, frequency):
         by, span = frequency.by, frequency.span
-        frequencies = [cls.months, cls.weeks, cls.days, cls.hours, cls.minutes]
-        frequencies = {frequency.by: frequency for frequency in frequencies}
+        frequencies = {frequency.by: frequency for frequency in dict(cls).values()}
         if by not in frequencies.keys(): raise IkbrFrequencyByError()
         if span not in frequencies[by].span: raise IkbrFrequencySpanError()
         return f"{int(span)} {str(frequencies[by].code)}{'s' if span > 1 else ''}"
-
-
-class IkbrFormatters:
-    @staticmethod
-    def frequency(frequency): return IkbrFrequencies(frequency)
-
-    @staticmethod
-    def duration(daterange):
-        assert isinstance(daterange, DateRange)
-        seconds = int((daterange.maximum - daterange.minimum).total_seconds())
-        return f"{seconds} S"
-
-    @staticmethod
-    def datetime(date):
-        assert isinstance(date, Date)
-        string = date.strftime("%Y%m%d %H:%M:%S")
-        return f"{string} US/Eastern"
-
-    @staticmethod
-    def price(price):
-        assert isinstance(price, (set, Price))
-        prices = {Price.TRADE: "TRADES", Price.MID: "MIDPOINT", Price.BID: "BID", Price.ASK: "ASK", {Price.BID, Price.ASK}: "BID_ASK"}
-        if price not in prices.keys: raise IkbrPriceError()
-        return prices[price]
 
 
 class IbkrSocket(WebSOCKSource):
@@ -113,6 +80,15 @@ class IbkrSocket(WebSOCKSource):
 
 
 class IbkrPage(WebSOCKPage):
+    @staticmethod
+    def price(price): return {Price.TRADE: "TRADES", Price.MID: "MIDPOINT", Price.BID: "BID", Price.ASK: "ASK", Price.QUOTE: "BID_ASK"}[price]
+    @staticmethod
+    def datetime(datetime): return f"{datetime.strftime('%Y%m%d %H:%M:%S')} US/Eastern"
+    @staticmethod
+    def frequency(frequency): return IkbrFrequencies(frequency)
+    @staticmethod
+    def duration(duration): return f"{duration} S"
+
     @singledispatchmethod
     def qualify(self, security): raise TypeError(type(security))
 

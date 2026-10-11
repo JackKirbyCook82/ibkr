@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """
 Created on Sun Oct 4 2026
-@name:   IKBR History Bars Objects
+@name:   IKBR Bars Objects
 @author: Jack Kirby Cook
-@file:   ibkr/history/bars.py
+@file:   ibkr/bars.py
 
 """
 
-from ib_async import Stock
+from ib_async import Stock, util
 
-from ibkr.website import IbkrPage, IkbrFormatters
+from ibkr.website import IbkrPage
 from finance.querys import Symbol
 
 __version__ = "1.0.0"
@@ -33,11 +33,21 @@ class IkbrBarsHistoryPage(IbkrPage):
         contracts = self.execute(**parameters)
         return contracts
 
-    def execute(self, *args, security, price, frequency, history, **kwargs):
-        stop = IkbrFormatters.datetime(history.maximum)
-        frequency = IkbrFormatters.frequency(frequency)
-        duration = IkbrFormatters.duration(history)
-        price = IkbrFormatters.price(price)
-        parameters = dict(endDateTime=stop, durationStr=duration, barSizeSetting=frequency, whatToShow=price, useRTH=True)
-        bars = self.source.connection.reqHistoricalData(security, **parameters)
+    def execute(self, *args, **kwargs):
+        pass
+
+    def generator(self, *args, security, price, frequency, history, **kwargs):
+        pass
+
+#    def generator(self, *args, security, price, frequency, history, **kwargs):
+#        duration = int((history.maximum - history.minimum).total_seconds())
+#        duration = self.duration(duration)
+#        stop = self.datetime(history.maximum)
+#        frequency = self.frequency(frequency)
+#        price = self.price(price)
+#        parameters = dict(endDateTime=stop, durationStr=duration, barSizeSetting=frequency, whatToShow=price, useRTH=True)
+#        bars = self.source.connection.reqHistoricalData(security, **parameters)
+#        bars = util.df(bars)
+#        yield bars
+
 

@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """
 Created on Sun Oct 4 2026
-@name:   IKBR History Ticks Objects
+@name:   IKBR Ticks Objects
 @author: Jack Kirby Cook
-@file:   ibkr/history/ticks.py
+@file:   ibkr/ticks.py
 
 """
 
-from ib_async import Stock
+from ib_async import Stock, util
 
-from ibkr.website import IbkrPage, IkbrFormatters
+from ibkr.website import IbkrPage
 from finance.querys import Symbol
 
 __version__ = "1.0.0"
@@ -33,11 +33,28 @@ class IkbrTicksHistoryPage(IbkrPage):
         contracts = self.execute(**parameters)
         return contracts
 
-    def execute(self, *args, security, price, frequency, history, **kwargs):
-        start = IkbrFormatters.datetime(history.minimum)
-        stop = IkbrFormatters.datetime(history.maximum)
-        price = IkbrFormatters.price(price)
-        parameters = dict(endDateTime=, numberOfTicks=1000, whatToShow=price, useRTH=True, ignoreSize=False)
-        ticks = self.source.connection.reqHistoricalData(security, **parameters)
+    def execute(self, *args, **kwargs):
+        pass
+
+    def generator(self, *args, security, price, frequency, history, **kwargs):
+        pass
+
+#    def generator(self, *args, security, price, frequency, history, **kwargs):
+#        price = self.price(price)
+#        while True:
+#            duration = int((history.maximum - history.minimum).total_seconds())
+#            duration = self.duration(duration)
+#            start = self.datetime(history.minimum)
+#            stop = self.datetime(history.maximum)
+#            parameters = dict(endDateTime=stop, numberOfTicks=1000, whatToShow=price, useRTH=True, ignoreSize=False)
+#            ticks = self.source.connection.reqHistoricalData(security, endDateTime=, **parameters)
+#            ticks = util.df(ticks)
+#            yield ticks
+
+
+
+
+
+
 
 
