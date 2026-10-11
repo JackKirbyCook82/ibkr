@@ -30,7 +30,7 @@ class IkbrTicksHistoryPage(IbkrPage):
         else: raise TypeError(product)
         if not bool(security.conId): security = self.qualify(security)
         parameters = dict(security=security, price=price, frequency=frequency, history=history)
-        contracts = self.execute(**parameters)
+        contracts = self.execute(*args, **parameters, **kwargs)
         return contracts
 
     def execute(self, *args, **kwargs):
