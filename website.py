@@ -22,21 +22,21 @@ from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["IbkrSocket", "IbkrPage", "IbkrDownloader", "IkbrFormatters"]
+__all__ = ["IbkrSocket", "IbkrPage", "IbkrDownloader"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class IkbrError(Exception): pass
-class IkbrSecurityError(IkbrError): pass
-class IkbrFrequencyError(IkbrError): pass
-class IkbrFrequencyByError(IkbrFrequencyError): pass
-class IkbrFrequencySpanError(IkbrFrequencyError): pass
+class IbkrError(Exception): pass
+class IbkrSecurityError(IbkrError): pass
+class IbkrFrequencyError(IbkrError): pass
+class IbkrFrequencyByError(IbkrFrequencyError): pass
+class IbkrFrequencySpanError(IbkrFrequencyError): pass
 
 
 @dataclass(frozen=True)
 class IbkrFrequency: by: Frequency; code: str; span: list[int]
-class IkbrFrequencies(metaclass=CollectionMeta):
+class IbkrFrequencies(metaclass=CollectionMeta):
     minutes = IbkrFrequency(Frequency.MINUTELY, "min", [1, 2, 3, 5, 10, 15, 20, 30])
     hours = IbkrFrequency(Frequency.HOURLY, "hour", [1, 2, 3, 4, 8])
     months = IbkrFrequency(Frequency.MONTHLY, "month", [1])
@@ -46,8 +46,8 @@ class IkbrFrequencies(metaclass=CollectionMeta):
     def __new__(cls, frequency):
         by, span = frequency.by, frequency.span
         frequencies = {frequency.by: frequency for frequency in dict(cls).values()}
-        if by not in frequencies.keys(): raise IkbrFrequencyByError()
-        if span not in frequencies[by].span: raise IkbrFrequencySpanError()
+        if by not in frequencies.keys(): raise IbkrFrequencyByError()
+        if span not in frequencies[by].span: raise IbkrFrequencySpanError()
         return f"{int(span)} {str(frequencies[by].code)}{'s' if span > 1 else ''}"
 
 
@@ -69,6 +69,18 @@ class IbkrSocket(WebSOCKSource):
     def subscribe(self, security): self.connection.reqMktData(security)
     def unsubscribe(self, security): self.connection.cancelMktData(security)
 
+    @singledispatchmethod
+    def qualify(self, security): raise TypeError(type(security))
+
+    @qualify.register(list)
+    def _(self, securities): return self.connection.qualifyContracts(*securities)
+
+    @qualify.register(Stock)
+    @qualify.register(Option)
+    def _(self, security):
+        try: return self.connection.qualifyContracts(security)[0]
+        except IndexError: raise IbkrSecurityError()
+
     @property
     def connected(self): return self.connection.isConnected()
     @property
@@ -81,25 +93,11 @@ class IbkrSocket(WebSOCKSource):
 
 class IbkrPage(WebSOCKPage):
     @staticmethod
-    def price(price): return {Price.TRADE: "TRADES", Price.MID: "MIDPOINT", Price.BID: "BID", Price.ASK: "ASK", Price.QUOTE: "BID_ASK"}[price]
+    def price(*args, price, **kwargs): return {Price.TRADE: "TRADES", Price.MID: "MIDPOINT", Price.BID: "BID", Price.ASK: "ASK", Price.QUOTE: "BID_ASK"}[price]
     @staticmethod
-    def datetime(datetime): return f"{datetime.strftime('%Y%m%d %H:%M:%S')} US/Eastern"
+    def duration(*args, duration, **kwargs): return f"{int(duration.total_seconds())} S"
     @staticmethod
-    def frequency(frequency): return IkbrFrequencies(frequency)
-    @staticmethod
-    def duration(duration): return f"{duration} S"
-
-    @singledispatchmethod
-    def qualify(self, security): raise TypeError(type(security))
-
-    @qualify.register(list)
-    def _(self, securities): return self.source.connection.qualifyContracts(*securities)
-
-    @qualify.register(Stock)
-    @qualify.register(Option)
-    def _(self, security):
-        try: return self.source.connection.qualifyContracts(security)[0]
-        except IndexError: raise IkbrSecurityError()
+    def frequency(*args, frequency, **kwargs): return IbkrFrequencies(frequency)
 
     @singledispatchmethod
     @staticmethod

@@ -7,10 +7,16 @@ Created on Sun Oct 4 2026
 
 """
 
+from itertools import chain
 from ib_async import Stock, util
+from zoneinfo import ZoneInfo
+from datetime import time as Time
+from datetime import timezone as Timezone
+from datetime import datetime as Datetime
 
 from ibkr.website import IbkrPage
 from finance.querys import Symbol
+from support.custom import DateRange
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -29,25 +35,28 @@ class IkbrBarsHistoryPage(IbkrPage):
             except KeyError: security = self.security(product)
         else: raise TypeError(product)
         if not bool(security.conId): security = self.qualify(security)
-        parameters = dict(security=security, price=price, frequency=frequency, history=history)
+        history = DateRange([Datetime.combine(date, Time.min, tzinfo=ZoneInfo("America/New_York")).astimezone(Timezone.utc) for date in history])
+        duration = history.maximum - history.minimum
+        parameters = dict(security=security, price=price, frequency=frequency, history=history, duration=duration)
         contracts = self.execute(*args, **parameters, **kwargs)
         return contracts
 
     def execute(self, *args, **kwargs):
-        pass
+        bars = self.generator(*args, **kwargs)
+        bars = list(chain.from_iterable(bars))
+        bars = util.df(bars)
 
-    def generator(self, *args, security, price, frequency, history, **kwargs):
-        pass
+    def bars(self, *args, security, stop, **kwargs):
+        frequency = self.frequency(*args, **kwargs)
+        duration = self.duration(*args, **kwargs)
+        price = self.price(*args, **kwargs)
+        parameters = dict(whatToShow=price, endDateTime=stop, durationStr=duration, barSizeSetting=frequency, useRTH=True)
+        bars = self.source.connection.reqHistoricalData(security, **parameters)
+        return bars
 
-#    def generator(self, *args, security, price, frequency, history, **kwargs):
-#        duration = int((history.maximum - history.minimum).total_seconds())
-#        duration = self.duration(duration)
-#        stop = self.datetime(history.maximum)
-#        frequency = self.frequency(frequency)
-#        price = self.price(price)
-#        parameters = dict(endDateTime=stop, durationStr=duration, barSizeSetting=frequency, whatToShow=price, useRTH=True)
-#        bars = self.source.connection.reqHistoricalData(security, **parameters)
-#        bars = util.df(bars)
-#        yield bars
+    def generator(self, *args, **kwargs):
+        bars = self.bars(*args, **kwargs)
+        yield bars
+
 
 

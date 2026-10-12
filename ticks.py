@@ -7,10 +7,17 @@ Created on Sun Oct 4 2026
 
 """
 
+from itertools import chain
 from ib_async import Stock, util
+from zoneinfo import ZoneInfo
+from datetime import time as Time
+from datetime import datetime as Datetime
+from datetime import timezone as Timezone
+from datetime import timedelta as Timedelta
 
 from ibkr.website import IbkrPage
 from finance.querys import Symbol
+from support.custom import DateRange
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -28,33 +35,31 @@ class IkbrTicksHistoryPage(IbkrPage):
             try: security = product["security"]
             except KeyError: security = self.security(product)
         else: raise TypeError(product)
-        if not bool(security.conId): security = self.qualify(security)
+        if not bool(security.conId): security = self.source.qualify(security)
+        history = DateRange([Datetime.combine(date, Time.min, tzinfo=ZoneInfo("America/New_York")).astimezone(Timezone.utc) for date in history])
         parameters = dict(security=security, price=price, frequency=frequency, history=history)
         contracts = self.execute(*args, **parameters, **kwargs)
         return contracts
 
     def execute(self, *args, **kwargs):
-        pass
+        ticks = self.generator(*args, **kwargs)
+        ticks = list(chain.from_iterable(ticks))
+        ticks = util.df(ticks)
 
-    def generator(self, *args, security, price, frequency, history, **kwargs):
-        pass
+    def ticks(self, *args, security, stop, **kwargs):
+        price = self.price(*args, **kwargs)
+        parameters = dict(whatToShow=price, startDateTime="", endDateTime=stop, numberOfTicks=1000, useRTH=True, ignoreSize=False)
+        ticks = self.source.connection.reqHistoricalTicks(security, **parameters)
+        return ticks
 
-#    def generator(self, *args, security, price, frequency, history, **kwargs):
-#        price = self.price(price)
-#        while True:
-#            duration = int((history.maximum - history.minimum).total_seconds())
-#            duration = self.duration(duration)
-#            start = self.datetime(history.minimum)
-#            stop = self.datetime(history.maximum)
-#            parameters = dict(endDateTime=stop, numberOfTicks=1000, whatToShow=price, useRTH=True, ignoreSize=False)
-#            ticks = self.source.connection.reqHistoricalData(security, endDateTime=, **parameters)
-#            ticks = util.df(ticks)
-#            yield ticks
-
-
-
-
-
+    def generator(self, *args, history, **kwargs):
+        stop = history.stop
+        while stop > history.start:
+            ticks = self.ticks(*args, stop=stop, **kwargs)
+            if not ticks: break
+            yield ticks
+            stop = min(tick.time for tick in ticks)
+            stop = stop - Timedelta(seconds=1)
 
 
 

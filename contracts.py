@@ -31,14 +31,14 @@ class IkbrContractPage(IbkrPage):
             try: security = product["security"]
             except KeyError: security = self.security(product)
         else: raise TypeError(product)
-        if not bool(security.conId): security = self.qualify(security)
+        if not bool(security.conId): security = self.source.qualify(security)
         parameters = dict(security=security, expires=expires, strikes=strikes)
         contracts = self.execute(**parameters)
         return contracts
 
     def execute(self, *args, **kwargs):
         securities = list(self.securities(*args, **kwargs))
-        securities = self.qualify(securities)
+        securities = self.source.qualify(securities)
         contracts = self.contracts(securities)
         return contracts
 
