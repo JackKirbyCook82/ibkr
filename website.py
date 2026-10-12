@@ -7,10 +7,14 @@ Created on Sun Oct 4 2026
 
 """
 
+import numpy as np
+import pandas as pd
 from abc import ABC
+from typing import Callable
 from dataclasses import dataclass
 from ib_async import IB, Stock, Option
 from functools import singledispatchmethod
+
 
 from finance.querys import Symbol, Contract
 from finance.enumerations import Frequency, Price
@@ -32,6 +36,27 @@ class IbkrSecurityError(IbkrError): pass
 class IbkrFrequencyError(IbkrError): pass
 class IbkrFrequencyByError(IbkrFrequencyError): pass
 class IbkrFrequencySpanError(IbkrFrequencyError): pass
+
+
+@dataclass(frozen=True)
+class IbkrColumn: name: str; code: str; parser: Callable
+class IbkrColumns(metaclass=CollectionMeta):
+    datetime = IbkrColumn("datetime", "time", lambda string: pd.to_datetime(string, utc=True))
+    volume = IbkrColumn("volume", "volume", np.int64)
+    size = IbkrColumn("size", "size", np.float32)
+    supply = IbkrColumn("supply", "sizeAsk", np.float32)
+    demand = IbkrColumn("demand", "sizeBid", np.float32)
+    trade = IbkrColumn("trade", "price", np.float32)
+    bid = IbkrColumn("bid", "priceBid", np.float32)
+    ask = IbkrColumn("ask", "priceAsk", np.float32)
+    open = IbkrColumn("open", "priceOpen", np.float32)
+    close = IbkrColumn("close", "priceClose", np.float32)
+    high = IbkrColumn("high", "priceHigh", np.float32)
+    low = IbkrColumn("low", "priceLow", np.float32)
+
+    def __new__(cls, columns):
+        columns = [column for column in list(dict(cls).values()) if column.code in columns]
+        return columns
 
 
 @dataclass(frozen=True)
@@ -69,18 +94,6 @@ class IbkrSocket(WebSOCKSource):
     def subscribe(self, security): self.connection.reqMktData(security)
     def unsubscribe(self, security): self.connection.cancelMktData(security)
 
-    @singledispatchmethod
-    def qualify(self, security): raise TypeError(type(security))
-
-    @qualify.register(list)
-    def _(self, securities): return self.connection.qualifyContracts(*securities)
-
-    @qualify.register(Stock)
-    @qualify.register(Option)
-    def _(self, security):
-        try: return self.connection.qualifyContracts(security)[0]
-        except IndexError: raise IbkrSecurityError()
-
     @property
     def connected(self): return self.connection.isConnected()
     @property
@@ -92,12 +105,32 @@ class IbkrSocket(WebSOCKSource):
 
 
 class IbkrPage(WebSOCKPage):
+    @singledispatchmethod
+    def qualify(self, security): raise TypeError(type(security))
+
+    @qualify.register(list)
+    def _(self, securities): return self.source.connection.qualifyContracts(*securities)
+
+    @qualify.register(Stock)
+    @qualify.register(Option)
+    def _(self, security):
+        try: return self.source.connection.qualifyContracts(security)[0]
+        except IndexError: raise IbkrSecurityError()
+
     @staticmethod
     def price(*args, price, **kwargs): return {Price.TRADE: "TRADES", Price.MID: "MIDPOINT", Price.BID: "BID", Price.ASK: "ASK", Price.QUOTE: "BID_ASK"}[price]
     @staticmethod
     def duration(*args, duration, **kwargs): return f"{int(duration.total_seconds())} S"
     @staticmethod
     def frequency(*args, frequency, **kwargs): return IbkrFrequencies(frequency)
+
+    @staticmethod
+    def parse(dataframe):
+        columns = IbkrColumns(dataframe.columns)
+        dataframe = dataframe[[column.code for column in columns]]
+        dataframe = dataframe.rename(columns={column.code: column.name for column in columns}, inplace=False)
+        for column in columns: dataframe[column.name] = dataframe[column.name].apply(column.parser)
+        return dataframe
 
     @singledispatchmethod
     @staticmethod

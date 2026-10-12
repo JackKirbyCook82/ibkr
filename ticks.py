@@ -38,13 +38,15 @@ class IkbrTicksHistoryPage(IbkrPage):
         if not bool(security.conId): security = self.source.qualify(security)
         history = DateRange([Datetime.combine(date, Time.min, tzinfo=ZoneInfo("America/New_York")).astimezone(Timezone.utc) for date in history])
         parameters = dict(security=security, price=price, frequency=frequency, history=history)
-        contracts = self.execute(*args, **parameters, **kwargs)
-        return contracts
+        ticks = self.execute(*args, **parameters, **kwargs)
+        return ticks
 
     def execute(self, *args, **kwargs):
         ticks = self.generator(*args, **kwargs)
         ticks = list(chain.from_iterable(ticks))
         ticks = util.df(ticks)
+        ticks = self.parse(ticks)
+        return ticks
 
     def ticks(self, *args, security, stop, **kwargs):
         price = self.price(*args, **kwargs)

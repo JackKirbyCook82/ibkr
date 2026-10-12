@@ -38,13 +38,15 @@ class IkbrBarsHistoryPage(IbkrPage):
         history = DateRange([Datetime.combine(date, Time.min, tzinfo=ZoneInfo("America/New_York")).astimezone(Timezone.utc) for date in history])
         duration = history.maximum - history.minimum
         parameters = dict(security=security, price=price, frequency=frequency, history=history, duration=duration)
-        contracts = self.execute(*args, **parameters, **kwargs)
-        return contracts
+        bars = self.execute(*args, **parameters, **kwargs)
+        return bars
 
     def execute(self, *args, **kwargs):
         bars = self.generator(*args, **kwargs)
         bars = list(chain.from_iterable(bars))
         bars = util.df(bars)
+        bars = self.parse(bars)
+        return bars
 
     def bars(self, *args, security, stop, **kwargs):
         frequency = self.frequency(*args, **kwargs)
