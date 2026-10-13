@@ -10,11 +10,13 @@ Created on Sun Oct 4 2026
 from itertools import chain
 from ib_async import Stock, util
 from zoneinfo import ZoneInfo
+from abc import ABC, abstractmethod
 from datetime import time as Time
 from datetime import timezone as Timezone
 from datetime import datetime as Datetime
 
-from ibkr.website import IbkrPage
+from ibkr.website import IbkrPage, IbkrDownloader
+from finance.enumerations import Instrument
 from finance.querys import Symbol
 from support.custom import DateRange
 
@@ -25,7 +27,7 @@ __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class IkbrBarsHistoryPage(IbkrPage):
+class IkbrBarsPage(IbkrPage, ABC):
     def __call__(self, *args, product, price, frequency, history, **kwargs):
         assert frequency is not None and bool(frequency)
         assert history is not None and bool(history)
@@ -45,7 +47,7 @@ class IkbrBarsHistoryPage(IbkrPage):
         bars = self.generator(*args, **kwargs)
         bars = list(chain.from_iterable(bars))
         bars = util.df(bars)
-        bars = self.parse(bars)
+        bars = self.parse(bars, *args, **kwargs)
         return bars
 
     def bars(self, *args, security, stop, **kwargs):
@@ -59,6 +61,31 @@ class IkbrBarsHistoryPage(IbkrPage):
     def generator(self, *args, **kwargs):
         bars = self.bars(*args, **kwargs)
         yield bars
+
+    @abstractmethod
+    def parse(self, bars, *args, security, **kwargs): pass
+
+
+class IkbrStockBarsPage(IbkrPage):
+    def parse(self, bars, *args, security, **kwargs):
+        pass
+
+
+class IkbrOptionBarsPage(IbkrPage):
+    def parse(self, bars, *args, security, **kwargs):
+        pass
+
+
+class IkbrBarsDownloader(IbkrDownloader):
+    pass
+
+
+class IkbrStockBarsDownloader(IbkrDownloader, instrument=Instrument.STOCK):
+    pass
+
+
+class IkbrOptionBarsDownloader(IbkrDownloader, instrument=Instrument.OPTION):
+    pass
 
 
 

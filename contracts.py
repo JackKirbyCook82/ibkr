@@ -11,7 +11,7 @@ from ib_async import Stock, Option
 from itertools import product as iterprod
 from datetime import datetime as Datetime
 
-from ibkr.website import IbkrPage
+from ibkr.website import IbkrPage, IbkrDownloader
 from finance.enumerations import Option
 from finance.querys import Symbol, Contract
 
@@ -32,7 +32,7 @@ class IkbrContractPage(IbkrPage):
             except KeyError: security = self.security(product)
         else: raise TypeError(product)
         if not bool(security.conId): security = self.source.qualify(security)
-        parameters = dict(security=security, expires=expires, strikes=strikes)
+        parameters = dict(product=product, security=security, expires=expires, strikes=strikes)
         contracts = self.execute(**parameters)
         return contracts
 
@@ -62,6 +62,10 @@ class IkbrContractPage(IbkrPage):
             contract = Contract(ticker, expire, strike, option)
             contract["security"] = security
             yield contract
+
+
+class IkbrContractDownloader(IbkrDownloader, page=IkbrContractPage):
+    pass
 
 
 

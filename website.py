@@ -15,12 +15,12 @@ from dataclasses import dataclass
 from ib_async import IB, Stock, Option
 from functools import singledispatchmethod
 
-
 from finance.querys import Symbol, Contract
 from finance.enumerations import Frequency, Price
 from finance.reporting import Results
 from webscraping.webpages import WebSOCKPage
 from webscraping.websources import WebSOCKSource
+from support.decorators import Dispatchers
 from support.meta import CollectionMeta
 from support.mixins import Logging
 
@@ -53,10 +53,6 @@ class IbkrColumns(metaclass=CollectionMeta):
     close = IbkrColumn("close", "priceClose", np.float32)
     high = IbkrColumn("high", "priceHigh", np.float32)
     low = IbkrColumn("low", "priceLow", np.float32)
-
-    def __new__(cls, columns):
-        columns = [column for column in list(dict(cls).values()) if column.code in columns]
-        return columns
 
 
 @dataclass(frozen=True)
@@ -117,20 +113,32 @@ class IbkrPage(WebSOCKPage):
         try: return self.source.connection.qualifyContracts(security)[0]
         except IndexError: raise IbkrSecurityError()
 
+    @Dispatchers.Type(locator="security")
+    def index(self, dataframe, *args, security, **kwargs): raise TypeError(type(security))
+
+    @index.register(Stock)
+    def _(self, dataframe, *args, security, **kwargs):
+        dataframe["ticker"] = str(security.symbol).upper()
+        return dataframe
+
+    @index.register(Option)
+    def _(self, dataframe, *args, security, **kwargs):
+
+
+    @staticmethod
+    def columns(dataframe, *args, security, **kwargs):
+        columns = [column for column in list(dict(IbkrColumns).values()) if column.code in dataframe.columns]
+        dataframe = dataframe[[column.code for column in columns]]
+        dataframe = dataframe.rename(columns={column.code: column.name for column in columns}, inplace=False)
+        for column in columns: dataframe[column.name] = dataframe[column.name].apply(column.parser)
+        return dataframe
+
     @staticmethod
     def price(*args, price, **kwargs): return {Price.TRADE: "TRADES", Price.MID: "MIDPOINT", Price.BID: "BID", Price.ASK: "ASK", Price.QUOTE: "BID_ASK"}[price]
     @staticmethod
     def duration(*args, duration, **kwargs): return f"{int(duration.total_seconds())} S"
     @staticmethod
     def frequency(*args, frequency, **kwargs): return IbkrFrequencies(frequency)
-
-    @staticmethod
-    def parse(dataframe):
-        columns = IbkrColumns(dataframe.columns)
-        dataframe = dataframe[[column.code for column in columns]]
-        dataframe = dataframe.rename(columns={column.code: column.name for column in columns}, inplace=False)
-        for column in columns: dataframe[column.name] = dataframe[column.name].apply(column.parser)
-        return dataframe
 
     @singledispatchmethod
     @staticmethod
@@ -146,8 +154,28 @@ class IbkrPage(WebSOCKPage):
 
 
 class IbkrDownloader(Results, Logging, ABC):
-    pass
+    def __init_subclass__(cls, /, **kwargs):
+        super().__init_subclass__(**kwargs)
+        namespace = getattr(cls, "__namespace__", {})
+        instrument = kwargs.get("instrument", namespace.get("instrument", None))
+        page = kwargs.get("page", namespace.get("page", None))
+        cls.__namespace__ = dict(instrument=instrument, page=page)
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__page = self.namespace["page"](*args, **kwargs)
+        self.__instrument = self.namespace["instrument"]
+
+    def scope(self, products, **kwargs):
+        if self.instrument is None: raise ValueError(self.instrument)
+        return super().scope(products, instrument=self.instrument)
+
+    @property
+    def namespace(self): return type(self).__namespace__
+    @property
+    def instrument(self): return self.__instrument
+    @property
+    def page(self): return self.__page
 
 
 
