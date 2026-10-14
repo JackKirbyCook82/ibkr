@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime as DateTime
 from functools import singledispatchmethod
 
-from finance.querys import Symbol, Contract, Query
+from finance.querys import Symbol, Contract
 from finance.enumerations import Frequency, Price, Right
 from finance.reporting import Results
 from finance.osi import OSI
@@ -34,7 +34,10 @@ __license__ = "MIT License"
 
 
 class IbkrError(Exception): pass
-class IbkrSecurityError(IbkrError): pass
+class IbkrSubscriptionError(IbkrError): pass
+class IbkrSubscriptionSecurityError(IbkrSubscriptionError): pass
+class IbkrSubscriptionMarketError(IbkrSubscriptionError): pass
+class IbkrSubscriptionLimitError(IbkrSubscriptionError): pass
 class IbkrFrequencyError(IbkrError): pass
 class IbkrFrequencyByError(IbkrFrequencyError): pass
 class IbkrFrequencySpanError(IbkrFrequencyError): pass
@@ -89,8 +92,24 @@ class IbkrSocket(WebSOCKSource):
 
     def start(self): self.connection.connect(host=self.host, port=self.port, clientId=self.client)
     def stop(self): self.connection.disconnect()
-    def subscribe(self, security): self.connection.reqMktData(security)
-    def unsubscribe(self, security): self.connection.cancelMktData(security)
+
+    def subscribe(self, *securities): return self.connection.reqMktData(*securities)
+    def unsubscribe(self, *securities): self.connection.cancelMktData(*securities)
+
+    @singledispatchmethod
+    def qualify(self, security): raise TypeError(type(security))
+
+    @qualify.register(list)
+    def _(self, securities):
+        qualified = self.connection.qualifyContracts(*securities)
+        if len(securities) != len(qualified): raise IbkrSubscriptionSecurityError()
+        return qualified
+
+    @qualify.register(ib_async.Stock)
+    @qualify.register(ib_async.Option)
+    def _(self, security):
+        try: return self.connection.qualifyContracts(security)[0]
+        except IndexError: raise IbkrSubscriptionSecurityError()
 
     @property
     def connected(self): return self.connection.isConnected()
@@ -102,19 +121,62 @@ class IbkrSocket(WebSOCKSource):
     def port(self): return self.__port
 
 
+@dataclass(frozen=True)
+class IbkrProduct: security: ib_async.Stock | ib_async.Option; market: ib_async.Ticker
+
+class IbkrSubscriptionMeta(type):
+    def __call__(cls, *args, **kwargs):
+        instance = super().__call__(*args, **kwargs)
+        products = kwargs.get("products", [])
+        assert isinstance(products, list)
+        instance.subscribe(*products)
+        return instance
+
+class IbkrSubscription(object, metaclass=IbkrSubscriptionMeta):
+    def __init__(self, source, *args, **kwargs):
+        assert isinstance(source, IbkrSocket)
+        assert bool(source)
+        self.__products = dict()
+        self.__source = source
+
+    def __contains__(self, product): return product in self.products
+    def __enter__(self): return self
+    def __exit__(self, error_type, error_value, error_traceback):
+        products = list(self.products.keys())
+        self.unsubscribe(*products)
+
+    def subscribe(self, *products):
+        products = [product for product in products if product not in self]
+        if not products: return
+        securities = [self.security(product) for product in products]
+        qualified = self.source.qualify(*securities)
+        if len(securities) != len(qualified): raise IbkrSubscriptionSecurityError()
+        markets = self.source.subscribe(*securities)
+        if len(securities) != len(markets): raise IbkrSubscriptionMarketError()
+        for key, security, market in zip(products, qualified, markets):
+            product = IbkrProduct(security, market)
+            self.products[key] = product
+
+    def unsubscribe(self, *products):
+        products = [product for product in products if product in self]
+        if not products: return
+        securities = {key: product.security for key, product in self.products.items() if key in products}
+        self.source.unsubscribe(*list(securities.values()))
+        for key in list(securities.keys()): del self.products[key]
+
+    @staticmethod
+    def security(product):
+        if product.record is Symbol: return ib_async.Stock(product.ticker, "SMART", "USD")
+        elif product.record is Contract: return ib_async.Option(product.ticker, product.expire.strftime("%Y%m%d"), product.strike, str(product.right).upper()[0], "SMART")
+        else: raise TypeError(type(product.record))
+
+    @property
+    def products(self): return self.__products
+    @property
+    def source(self): return self.__source
+
+
 class IbkrPage(WebSOCKPage):
-    @singledispatchmethod
-    def qualify(self, security): raise TypeError(type(security))
-
-    @qualify.register(list)
-    def _(self, securities): return self.source.connection.qualifyContracts(*securities)
-
-    @qualify.register(ib_async.Stock)
-    @qualify.register(ib_async.Option)
-    def _(self, security):
-        try: return self.source.connection.qualifyContracts(security)[0]
-        except IndexError: raise IbkrSecurityError()
-
     @Dispatchers.Type(locator="security")
     def index(self, dataframe, *args, security, **kwargs): raise TypeError(type(security))
 
@@ -146,13 +208,6 @@ class IbkrPage(WebSOCKPage):
     def duration(*args, duration, **kwargs): return f"{int(duration.total_seconds())} S"
     @staticmethod
     def frequency(*args, frequency, **kwargs): return IbkrFrequencies(frequency)
-
-    @staticmethod
-    def security(product):
-        assert isinstance(product, Query)
-        if product.record is Symbol: return ib_async.Stock(product.ticker, "SMART", "USD")
-        elif product.record is Contract: return ib_async.Option(product.ticker, product.expire.strftime("%Y%m%d"), product.strike, str(product.right).upper()[0], "SMART")
-        else: raise TypeError(type(product.record))
 
 
 class IbkrDownloader(Results, Logging, ABC):
