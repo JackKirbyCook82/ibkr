@@ -7,12 +7,12 @@ Created on Sun Oct 4 2026
 
 """
 
-from ib_async import Stock, Option
+import ib_async
 from itertools import product as iterprod
 from datetime import datetime as Datetime
 
 from ibkr.website import IbkrPage, IbkrDownloader
-from finance.enumerations import Option
+from finance.enumerations import Right
 from finance.querys import Symbol, Contract
 
 __version__ = "1.0.0"
@@ -26,7 +26,7 @@ class IkbrContractPage(IbkrPage):
     def __call__(self, *args, product, expires, strikes, **kwargs):
         assert expires is not None and bool(expires)
         assert strikes is not None and bool(strikes)
-        if isinstance(product, Stock): security = product
+        if isinstance(product, ib_async.Stock): security = product
         elif isinstance(product, Symbol):
             try: security = product["security"]
             except KeyError: security = self.security(product)
@@ -47,19 +47,19 @@ class IkbrContractPage(IbkrPage):
         chain = self.source.connection.reqSecDefOptParams(**parameters)
         expires = [expire for expire in chain.expirations if Datetime.strptime(expire, "%Y%m%d").date() in expires]
         strikes = [strike for strike in chain.strikes if float(strike) in strikes]
-        options = [str(option).upper()[0] for option in list(Option)]
+        rights = [str(right).upper()[0] for right in list(Right)]
         parameters = dict(symbol=security.symbol, exchange=chain.exchange, currency="USD", multiplier=chain.multiplier, tradingClass=chain.tradingClass)
-        for expire, strike, option in iterprod(expires, strikes, options):
-            yield Option(**parameters, lastTradeDateOrContractMonth=expire, strike=strike, option=option)
+        for expire, strike, right in iterprod(expires, strikes, rights):
+            yield ib_async.Option(**parameters, lastTradeDateOrContractMonth=expire, strike=strike, right=right)
 
     @staticmethod
     def contracts(securities):
         for security in securities:
             ticker = str(security.symbol).upper()
             expire = Datetime.strptime(security.lastTradeDateOrContractMonth, "%Y%m%d").date()
-            option = {str(option).upper()[0]: option for option in list(Option)}[security.right]
+            right = {str(right).upper()[0]: right for right in list(Right)}[security.right]
             strike = float(security.strike)
-            contract = Contract(ticker, expire, strike, option)
+            contract = Contract(ticker, expire, strike, right)
             contract["security"] = security
             yield contract
 

@@ -7,17 +7,19 @@ Created on Sun Oct 4 2026
 
 """
 
+import ib_async
 import numpy as np
 import pandas as pd
 from abc import ABC
 from typing import Callable
 from dataclasses import dataclass
-from ib_async import IB, Stock, Option
+from datetime import datetime as DateTime
 from functools import singledispatchmethod
 
 from finance.querys import Symbol, Contract
-from finance.enumerations import Frequency, Price
+from finance.enumerations import Frequency, Price, Right
 from finance.reporting import Results
+from finance.osi import OSI
 from webscraping.webpages import WebSOCKPage
 from webscraping.websources import WebSOCKSource
 from support.decorators import Dispatchers
@@ -75,7 +77,7 @@ class IbkrFrequencies(metaclass=CollectionMeta):
 class IbkrSocket(WebSOCKSource):
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls)
-        instance.connection = IB()
+        instance.connection = ib_async.IB()
         return instance
 
     def __bool__(self): return super().__bool__() and self.connected
@@ -107,8 +109,8 @@ class IbkrPage(WebSOCKPage):
     @qualify.register(list)
     def _(self, securities): return self.source.connection.qualifyContracts(*securities)
 
-    @qualify.register(Stock)
-    @qualify.register(Option)
+    @qualify.register(ib_async.Stock)
+    @qualify.register(ib_async.Option)
     def _(self, security):
         try: return self.source.connection.qualifyContracts(security)[0]
         except IndexError: raise IbkrSecurityError()
@@ -116,17 +118,22 @@ class IbkrPage(WebSOCKPage):
     @Dispatchers.Type(locator="security")
     def index(self, dataframe, *args, security, **kwargs): raise TypeError(type(security))
 
-    @index.register(Stock)
+    @index.register(ib_async.Stock)
     def _(self, dataframe, *args, security, **kwargs):
         dataframe["ticker"] = str(security.symbol).upper()
         return dataframe
 
-    @index.register(Option)
+    @index.register(ib_async.Option)
     def _(self, dataframe, *args, security, **kwargs):
-
+        dataframe["ticker"] = str(security.symbol).upper()
+        dataframe["expire"] = DateTime.strptime("%Y%m%d", security.lastTradeDateOrContractMonth).date()
+        dataframe["strike"] = float(security.strike)
+        dataframe["right"] = {str(right).upper()[0]: right for right in Right}[security.right]
+        dataframe["osi"] = DateTime[list(Contract)].apply(OSI)
+        return dataframe
 
     @staticmethod
-    def columns(dataframe, *args, security, **kwargs):
+    def columns(dataframe, *args, **kwargs):
         columns = [column for column in list(dict(IbkrColumns).values()) if column.code in dataframe.columns]
         dataframe = dataframe[[column.code for column in columns]]
         dataframe = dataframe.rename(columns={column.code: column.name for column in columns}, inplace=False)
@@ -146,11 +153,11 @@ class IbkrPage(WebSOCKPage):
 
     @security.register(Contract)
     @staticmethod
-    def _(contract): return Option(contract.ticker, contract.expire.strftime("%Y%m%d"), contract.strike, str(contract.option).upper()[0], "SMART")
+    def _(contract): return ib_async.Option(contract.ticker, contract.expire.strftime("%Y%m%d"), contract.strike, str(contract.option).upper()[0], "SMART")
 
     @security.register(Symbol)
     @staticmethod
-    def _(symbol): return Stock(symbol.ticker, "SMART", "USD")
+    def _(symbol): return ib_async.Stock(symbol.ticker, "SMART", "USD")
 
 
 class IbkrDownloader(Results, Logging, ABC):

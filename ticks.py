@@ -7,10 +7,10 @@ Created on Sun Oct 4 2026
 
 """
 
+from abc import ABC
 from itertools import chain
 from ib_async import Stock, util
 from zoneinfo import ZoneInfo
-from abc import ABC, abstractmethod
 from datetime import time as Time
 from datetime import datetime as Datetime
 from datetime import timezone as Timezone
@@ -47,7 +47,8 @@ class IkbrTicksPage(IbkrPage, ABC):
         ticks = self.generator(*args, **kwargs)
         ticks = list(chain.from_iterable(ticks))
         ticks = util.df(ticks)
-        ticks = self.parse(ticks, *args, **kwargs)
+        ticks = self.columns(ticks, *args, **kwargs)
+        ticks = self.index(ticks, *args, **kwargs)
         return ticks
 
     def ticks(self, *args, security, stop, **kwargs):
@@ -64,19 +65,6 @@ class IkbrTicksPage(IbkrPage, ABC):
             yield ticks
             stop = min(tick.time for tick in ticks)
             stop = stop - Timedelta(seconds=1)
-
-    @abstractmethod
-    def parse(self, ticks, *args, security, **kwargs): pass
-
-
-class IkbrStockTicksPage(IbkrPage):
-    def parse(self, ticks, *args, security, **kwargs):
-        pass
-
-
-class IkbrOptionTicksPage(IbkrPage):
-    def parse(self, ticks, *args, security, **kwargs):
-        pass
 
 
 class IkbrTicksDownloader(IbkrDownloader):
