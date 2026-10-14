@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime as DateTime
 from functools import singledispatchmethod
 
-from finance.querys import Symbol, Contract
+from finance.querys import Symbol, Contract, Query
 from finance.enumerations import Frequency, Price, Right
 from finance.reporting import Results
 from finance.osi import OSI
@@ -147,17 +147,12 @@ class IbkrPage(WebSOCKPage):
     @staticmethod
     def frequency(*args, frequency, **kwargs): return IbkrFrequencies(frequency)
 
-    @singledispatchmethod
     @staticmethod
-    def security(content): raise TypeError(type(content))
-
-    @security.register(Contract)
-    @staticmethod
-    def _(contract): return ib_async.Option(contract.ticker, contract.expire.strftime("%Y%m%d"), contract.strike, str(contract.option).upper()[0], "SMART")
-
-    @security.register(Symbol)
-    @staticmethod
-    def _(symbol): return ib_async.Stock(symbol.ticker, "SMART", "USD")
+    def security(product):
+        assert isinstance(product, Query)
+        if product.record is Symbol: return ib_async.Stock(product.ticker, "SMART", "USD")
+        elif product.record is Contract: return ib_async.Option(product.ticker, product.expire.strftime("%Y%m%d"), product.strike, str(product.right).upper()[0], "SMART")
+        else: raise TypeError(type(product.record))
 
 
 class IbkrDownloader(Results, Logging, ABC):

@@ -13,7 +13,7 @@ from datetime import datetime as Datetime
 
 from ibkr.website import IbkrPage, IbkrDownloader
 from finance.enumerations import Right
-from finance.querys import Symbol, Contract
+from finance.querys import Contract
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -26,11 +26,8 @@ class IkbrContractPage(IbkrPage):
     def __call__(self, *args, product, expires, strikes, **kwargs):
         assert expires is not None and bool(expires)
         assert strikes is not None and bool(strikes)
-        if isinstance(product, ib_async.Stock): security = product
-        elif isinstance(product, Symbol):
-            try: security = product["security"]
-            except KeyError: security = self.security(product)
-        else: raise TypeError(product)
+        try: security = product["security"]
+        except KeyError: security = self.security(product)
         if not bool(security.conId): security = self.source.qualify(security)
         parameters = dict(product=product, security=security, expires=expires, strikes=strikes)
         contracts = self.execute(**parameters)

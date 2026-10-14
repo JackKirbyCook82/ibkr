@@ -8,8 +8,8 @@ Created on Sun Oct 4 2026
 """
 
 from abc import ABC
+from ib_async import util
 from itertools import chain
-from ib_async import Stock, util
 from zoneinfo import ZoneInfo
 from datetime import time as Time
 from datetime import datetime as Datetime
@@ -18,7 +18,6 @@ from datetime import timedelta as Timedelta
 
 from ibkr.website import IbkrPage, IbkrDownloader
 from finance.enumerations import Instrument
-from finance.querys import Symbol
 from support.custom import DateRange
 
 __version__ = "1.0.0"
@@ -32,12 +31,9 @@ class IkbrTicksPage(IbkrPage, ABC):
     def __call__(self, *args, product, price, frequency, history, **kwargs):
         assert frequency is not None and bool(frequency)
         assert history is not None and bool(history)
-        if isinstance(product, Stock): security = product
-        elif isinstance(product, Symbol):
-            try: security = product["security"]
-            except KeyError: security = self.security(product)
-        else: raise TypeError(product)
-        if not bool(security.conId): security = self.source.qualify(security)
+        try: security = product["security"]
+        except KeyError: security = self.security(product)
+        if not bool(security.conId): security = self.qualify(security)
         history = DateRange([Datetime.combine(date, Time.min, tzinfo=ZoneInfo("America/New_York")).astimezone(Timezone.utc) for date in history])
         parameters = dict(security=security, price=price, frequency=frequency, history=history)
         ticks = self.execute(*args, **parameters, **kwargs)
