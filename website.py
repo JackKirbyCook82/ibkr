@@ -10,8 +10,9 @@ Created on Sun Oct 4 2026
 import ib_async
 import numpy as np
 import pandas as pd
-from abc import ABC
+import multiprocessing
 from typing import Callable
+from abc import ABC, ABCMeta
 from dataclasses import dataclass
 from datetime import datetime as DateTime
 from functools import singledispatchmethod
@@ -20,6 +21,7 @@ from finance.querys import Symbol, Contract
 from finance.enumerations import Frequency, Price, Right
 from finance.reporting import Results
 from finance.osi import OSI
+from pyparsing import opAssoc
 from webscraping.webpages import WebSOCKPage
 from webscraping.websources import WebSOCKSource
 from support.decorators import Dispatchers
@@ -77,24 +79,53 @@ class IbkrFrequencies(metaclass=CollectionMeta):
         return f"{int(span)} {str(frequencies[by].code)}{'s' if span > 1 else ''}"
 
 
-class IbkrSocket(WebSOCKSource):
-    def __new__(cls, *args, **kwargs):
-        instance = super().__new__(cls)
+@dataclass(frozen=True)
+class IbkrProduct:
+    security: ib_async.Stock | ib_async.Option
+    market: ib_async.Ticker
+
+
+class IbkrSocketMeta(ABCMeta):
+    def __call__(cls, *args, **kwargs):
+        instance = super().__call__(*args, **kwargs)
         instance.connection = ib_async.IB()
         return instance
 
+
+class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
     def __bool__(self): return super().__bool__() and self.connected
-    def __init__(self, *args, host, port, client=None, **kwargs):
+    def __len__(self): return len(self.registry)
+
+    def __init__(self, *args, host, port, client, limit, **kwargs):
+        assert isinstance(client, int) and isinstance(limit, int)
         super().__init__(*args, **kwargs)
+        self.__registry = dict()
         self.__client = client
+        self.__limit = limit
         self.__host = host
         self.__port = port
 
     def start(self): self.connection.connect(host=self.host, port=self.port, clientId=self.client)
     def stop(self): self.connection.disconnect()
 
-    def subscribe(self, *securities): return self.connection.reqMktData(*securities)
-    def unsubscribe(self, *securities): self.connection.cancelMktData(*securities)
+    def subscribe(self, product):
+        if len(self) >= self.limit: raise IbkrSubscriptionLimitError()
+        with self.mutex:
+            if "security" in product: security = product.security
+            else: security = self.security(product)
+            if not bool(security.conId): security = self.qualify(security)
+            if security.conId in self.registry.keys(): return
+            market = self.connection.reqMktData(security)
+            product = IbkrProduct(security, market)
+            self.registry[security.conId] = product
+
+    def unsubscribe(self, product):
+        assert isinstance(product, IbkrProduct)
+        with self.mutex:
+            try: product = self.registry[product.security.conId]
+            except KeyError: return
+            self.connection.cancelMktData(product.security)
+            self.registry.pop(product.security.conId)
 
     @singledispatchmethod
     def qualify(self, security): raise TypeError(type(security))
@@ -103,72 +134,61 @@ class IbkrSocket(WebSOCKSource):
     def _(self, securities):
         qualified = self.connection.qualifyContracts(*securities)
         if len(securities) != len(qualified): raise IbkrSubscriptionSecurityError()
+        if None in qualified: raise IbkrSubscriptionSecurityError()
         return qualified
 
     @qualify.register(ib_async.Stock)
     @qualify.register(ib_async.Option)
     def _(self, security):
-        try: return self.connection.qualifyContracts(security)[0]
+        try: qualified = self.connection.qualifyContracts(security)[0]
         except IndexError: raise IbkrSubscriptionSecurityError()
-
-    @property
-    def connected(self): return self.connection.isConnected()
-    @property
-    def client(self): return self.__client
-    @property
-    def host(self): return self.__host
-    @property
-    def port(self): return self.__port
-
-
-@dataclass(frozen=True)
-class IbkrProduct: security: ib_async.Stock | ib_async.Option; market: ib_async.Ticker
-
-class IbkrSubscriptionMeta(type):
-    def __call__(cls, *args, **kwargs):
-        instance = super().__call__(*args, **kwargs)
-        products = kwargs.get("products", [])
-        assert isinstance(products, list)
-        instance.subscribe(*products)
-        return instance
-
-class IbkrSubscription(object, metaclass=IbkrSubscriptionMeta):
-    def __init__(self, source, *args, **kwargs):
-        assert isinstance(source, IbkrSocket)
-        assert bool(source)
-        self.__products = dict()
-        self.__source = source
-
-    def __contains__(self, product): return product in self.products
-    def __enter__(self): return self
-    def __exit__(self, error_type, error_value, error_traceback):
-        products = list(self.products.keys())
-        self.unsubscribe(*products)
-
-    def subscribe(self, *products):
-        products = [product for product in products if product not in self]
-        if not products: return
-        securities = [self.security(product) for product in products]
-        qualified = self.source.qualify(*securities)
-        if len(securities) != len(qualified): raise IbkrSubscriptionSecurityError()
-        markets = self.source.subscribe(*securities)
-        if len(securities) != len(markets): raise IbkrSubscriptionMarketError()
-        for key, security, market in zip(products, qualified, markets):
-            product = IbkrProduct(security, market)
-            self.products[key] = product
-
-    def unsubscribe(self, *products):
-        products = [product for product in products if product in self]
-        if not products: return
-        securities = {key: product.security for key, product in self.products.items() if key in products}
-        self.source.unsubscribe(*list(securities.values()))
-        for key in list(securities.keys()): del self.products[key]
+        if qualified is None: raise IbkrSubscriptionSecurityError()
+        return qualified
 
     @staticmethod
     def security(product):
         if product.record is Symbol: return ib_async.Stock(product.ticker, "SMART", "USD")
         elif product.record is Contract: return ib_async.Option(product.ticker, product.expire.strftime("%Y%m%d"), product.strike, str(product.right).upper()[0], "SMART")
         else: raise TypeError(type(product.record))
+
+    @property
+    def connected(self): return self.connection.isConnected()
+    @property
+    def registry(self): return self.__registry
+    @property
+    def client(self): return self.__client
+    @property
+    def limit(self): return self.__limit
+    @property
+    def host(self): return self.__host
+    @property
+    def port(self): return self.__port
+
+
+class IbkrSubscriptionMeta(type):
+    def __call__(cls, source, *args, products, **kwargs):
+        assert isinstance(source, IbkrSocket) and isinstance(products, list)
+        securities = source.qualify(products)
+        for product, security in zip(products, securities): product["security"] = security
+        for product in products: source.subscribe(product)
+        instance = super().__call__(source, *args, products=products, **kwargs)
+        return instance
+
+
+# CREATE ANY IDENTITY FOR EACH SUBSCRIPTION CONTEXT
+# STORE THE IBKR PRODUCT FOR EACH IDENTITY
+
+
+class IbkrSubscription(object, metaclass=IbkrSubscriptionMeta):
+    def __init__(self, source, *args, products, **kwargs):
+        assert isinstance(source, IbkrSocket) and bool(source)
+        self.__products = products
+        self.__source = source
+
+    def __enter__(self): return self
+    def __exit__(self, error_type, error_value, error_traceback):
+        for product in self.products:
+            self.source.subscribe(product)
 
     @property
     def products(self): return self.__products
