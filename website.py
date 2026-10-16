@@ -8,20 +8,19 @@ Created on Sun Oct 4 2026
 """
 
 import ib_async
+import itertools
 import numpy as np
 import pandas as pd
-import multiprocessing
 from typing import Callable
 from abc import ABC, ABCMeta
 from dataclasses import dataclass
-from datetime import datetime as DateTime
+from datetime import datetime as Datetime
 from functools import singledispatchmethod
 
 from finance.querys import Symbol, Contract
 from finance.enumerations import Frequency, Price, Right
 from finance.reporting import Results
 from finance.osi import OSI
-from pyparsing import opAssoc
 from webscraping.webpages import WebSOCKPage
 from webscraping.websources import WebSOCKSource
 from support.decorators import Dispatchers
@@ -79,12 +78,6 @@ class IbkrFrequencies(metaclass=CollectionMeta):
         return f"{int(span)} {str(frequencies[by].code)}{'s' if span > 1 else ''}"
 
 
-@dataclass(frozen=True)
-class IbkrProduct:
-    security: ib_async.Stock | ib_async.Option
-    market: ib_async.Ticker
-
-
 class IbkrSocketMeta(ABCMeta):
     def __call__(cls, *args, **kwargs):
         instance = super().__call__(*args, **kwargs)
@@ -94,38 +87,15 @@ class IbkrSocketMeta(ABCMeta):
 
 class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
     def __bool__(self): return super().__bool__() and self.connected
-    def __len__(self): return len(self.registry)
-
-    def __init__(self, *args, host, port, client, limit, **kwargs):
-        assert isinstance(client, int) and isinstance(limit, int)
+    def __init__(self, *args, host, port, client, **kwargs):
+        assert isinstance(client, int)
         super().__init__(*args, **kwargs)
-        self.__registry = dict()
         self.__client = client
-        self.__limit = limit
         self.__host = host
         self.__port = port
 
     def start(self): self.connection.connect(host=self.host, port=self.port, clientId=self.client)
     def stop(self): self.connection.disconnect()
-
-    def subscribe(self, product):
-        if len(self) >= self.limit: raise IbkrSubscriptionLimitError()
-        with self.mutex:
-            if "security" in product: security = product.security
-            else: security = self.security(product)
-            if not bool(security.conId): security = self.qualify(security)
-            if security.conId in self.registry.keys(): return
-            market = self.connection.reqMktData(security)
-            product = IbkrProduct(security, market)
-            self.registry[security.conId] = product
-
-    def unsubscribe(self, product):
-        assert isinstance(product, IbkrProduct)
-        with self.mutex:
-            try: product = self.registry[product.security.conId]
-            except KeyError: return
-            self.connection.cancelMktData(product.security)
-            self.registry.pop(product.security.conId)
 
     @singledispatchmethod
     def qualify(self, security): raise TypeError(type(security))
@@ -154,49 +124,43 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
     @property
     def connected(self): return self.connection.isConnected()
     @property
-    def registry(self): return self.__registry
-    @property
     def client(self): return self.__client
-    @property
-    def limit(self): return self.__limit
     @property
     def host(self): return self.__host
     @property
     def port(self): return self.__port
 
 
-class IbkrSubscriptionMeta(type):
-    def __call__(cls, source, *args, products, **kwargs):
-        assert isinstance(source, IbkrSocket) and isinstance(products, list)
-        securities = source.qualify(products)
-        for product, security in zip(products, securities): product["security"] = security
-        for product in products: source.subscribe(product)
-        instance = super().__call__(source, *args, products=products, **kwargs)
-        return instance
-
-
-# CREATE ANY IDENTITY FOR EACH SUBSCRIPTION CONTEXT
-# STORE THE IBKR PRODUCT FOR EACH IDENTITY
-
-
-class IbkrSubscription(object, metaclass=IbkrSubscriptionMeta):
-    def __init__(self, source, *args, products, **kwargs):
-        assert isinstance(source, IbkrSocket) and bool(source)
-        self.__products = products
-        self.__source = source
-
-    def __enter__(self): return self
-    def __exit__(self, error_type, error_value, error_traceback):
-        for product in self.products:
-            self.source.subscribe(product)
-
-    @property
-    def products(self): return self.__products
-    @property
-    def source(self): return self.__source
-
-
 class IbkrPage(WebSOCKPage):
+    def chain(self, *args, security, **kwargs):
+        parameters = dict(underlyingSymbol=security.symbol, futFopExchange="", underlyingSecType="STK", underlyingConId=security.conId)
+        chain = self.source.connection.reqSecDefOptParams(**parameters)
+        expires = [Datetime.strptime(expire, "%Y%m%d").date() for expire in chain.expirations]
+        expires = [expire for expire in expires if expire in kwargs.get("expires", expires)]
+        strikes = list(map(float, chain.strikes))
+        strikes = [strike for strike in list(map(float, chain.strikes)) if strike in kwargs.get("strikes", strikes)]
+        rights = [str(right).upper()[0] for right in list(Right)]
+        parameters = dict(symbol=security.symbol, exchange=chain.exchange, currency="USD", multiplier=chain.multiplier, tradingClass=chain.tradingClass)
+        generator = itertools.product(expires, strikes, rights)
+        function = lambda expire, strike, right: ib_async.Option(**parameters, lastTradeDateOrContractMonth=expire, strike=strike, right=right)
+        chain = [function(expire, strike, right) for expire, strike, right in generator]
+        chain = self.source.qualify(chain)
+        return chain
+
+    def bars(self, *args, security, stop, **kwargs):
+        frequency = self.frequency(*args, **kwargs)
+        duration = self.duration(*args, **kwargs)
+        price = self.price(*args, **kwargs)
+        parameters = dict(whatToShow=price, endDateTime=stop, durationStr=duration, barSizeSetting=frequency, useRTH=True)
+        bars = self.source.connection.reqHistoricalData(security, **parameters)
+        return bars
+
+    def ticks(self, *args, security, stop, **kwargs):
+        price = self.price(*args, **kwargs)
+        parameters = dict(whatToShow=price, startDateTime="", endDateTime=stop, numberOfTicks=1000, useRTH=True, ignoreSize=False)
+        ticks = self.source.connection.reqHistoricalTicks(security, **parameters)
+        return ticks
+
     @Dispatchers.Type(locator="security")
     def index(self, dataframe, *args, security, **kwargs): raise TypeError(type(security))
 
@@ -208,10 +172,10 @@ class IbkrPage(WebSOCKPage):
     @index.register(ib_async.Option)
     def _(self, dataframe, *args, security, **kwargs):
         dataframe["ticker"] = str(security.symbol).upper()
-        dataframe["expire"] = DateTime.strptime("%Y%m%d", security.lastTradeDateOrContractMonth).date()
+        dataframe["expire"] = Datetime.strptime("%Y%m%d", security.lastTradeDateOrContractMonth).date()
         dataframe["strike"] = float(security.strike)
         dataframe["right"] = {str(right).upper()[0]: right for right in Right}[security.right]
-        dataframe["osi"] = DateTime[list(Contract)].apply(OSI)
+        dataframe["osi"] = Datetime[list(Contract)].apply(OSI)
         return dataframe
 
     @staticmethod
