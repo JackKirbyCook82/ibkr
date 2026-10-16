@@ -35,10 +35,7 @@ __license__ = "MIT License"
 
 
 class IbkrError(Exception): pass
-class IbkrSubscriptionError(IbkrError): pass
-class IbkrSubscriptionSecurityError(IbkrSubscriptionError): pass
-class IbkrSubscriptionMarketError(IbkrSubscriptionError): pass
-class IbkrSubscriptionLimitError(IbkrSubscriptionError): pass
+class IbkrSecurityError(IbkrError): pass
 class IbkrFrequencyError(IbkrError): pass
 class IbkrFrequencyByError(IbkrFrequencyError): pass
 class IbkrFrequencySpanError(IbkrFrequencyError): pass
@@ -103,16 +100,16 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
     @qualify.register(list)
     def _(self, securities):
         qualified = self.connection.qualifyContracts(*securities)
-        if len(securities) != len(qualified): raise IbkrSubscriptionSecurityError()
-        if None in qualified: raise IbkrSubscriptionSecurityError()
+        if len(securities) != len(qualified): raise IbkrSecurityError()
+        if None in qualified: raise IbkrSecurityError()
         return qualified
 
     @qualify.register(ib_async.Stock)
     @qualify.register(ib_async.Option)
     def _(self, security):
         try: qualified = self.connection.qualifyContracts(security)[0]
-        except IndexError: raise IbkrSubscriptionSecurityError()
-        if qualified is None: raise IbkrSubscriptionSecurityError()
+        except IndexError: raise IbkrSecurityError()
+        if qualified is None: raise IbkrSecurityError()
         return qualified
 
     @staticmethod
@@ -161,6 +158,14 @@ class IbkrPage(WebSOCKPage):
         ticks = self.source.connection.reqHistoricalTicks(security, **parameters)
         return ticks
 
+    def spot(self, *args, securities, **kwargs):
+        product = lambda content: {"product": content.contract.symbol, "time": content.time}
+        trade = lambda content: {"price": content.last, "size": content.lastSize}
+        quote = lambda content: {"priceBid": content.bid, "priceAsk": content.ask, "sizeBid": content.bidSize, "sizeAsk": content.askSize}
+        data = self.source.connection.reqTickers(*securities)
+        spot = [product(content) | trade(content) | quote(content) for content in data]
+        return spot
+
     @Dispatchers.Type(locator="security")
     def index(self, dataframe, *args, security, **kwargs): raise TypeError(type(security))
 
@@ -199,13 +204,15 @@ class IbkrDownloader(Results, Logging, ABC):
         super().__init_subclass__(**kwargs)
         namespace = getattr(cls, "__namespace__", {})
         instrument = kwargs.get("instrument", namespace.get("instrument", None))
+        price = kwargs.get("price", namespace.get("price", None))
         page = kwargs.get("page", namespace.get("page", None))
-        cls.__namespace__ = dict(instrument=instrument, page=page)
+        cls.__namespace__ = dict(instrument=instrument, price=price, page=page)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.__page = self.namespace["page"](*args, **kwargs)
         self.__instrument = self.namespace["instrument"]
+        self.__price = self.namespace["price"]
 
     def scope(self, products, **kwargs):
         if self.instrument is None: raise ValueError(self.instrument)
@@ -215,6 +222,8 @@ class IbkrDownloader(Results, Logging, ABC):
     def namespace(self): return type(self).__namespace__
     @property
     def instrument(self): return self.__instrument
+    @property
+    def price(self): return self.__price
     @property
     def page(self): return self.__page
 

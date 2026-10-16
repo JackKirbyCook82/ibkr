@@ -18,7 +18,7 @@ from datetime import timezone as Timezone
 from datetime import timedelta as Timedelta
 
 from ibkr.website import IbkrPage, IbkrDownloader
-from finance.enumerations import Instrument
+from finance.enumerations import Instrument, Price
 from support.custom import DateRange
 
 __version__ = "1.0.0"
@@ -58,7 +58,7 @@ class IbkrTicksPage(IbkrPage, ABC):
             stop = stop - Timedelta(seconds=1)
 
 
-class IbkrTicksDownloader(IbkrDownloader):
+class IbkrTicksDownloader(IbkrDownloader, page=IbkrTicksPage):
     def __call__(self, products, /, **kwargs):
         if not isinstance(products, list): products = [products]
         ticks = list(self.downloader(products, **kwargs))
@@ -68,9 +68,11 @@ class IbkrTicksDownloader(IbkrDownloader):
 
     def downloader(self, products, /, **kwargs):
         for product in products:
-            scope = self.scope([products])
-            ticks = self.page(product=product, **kwargs)
+            scope = self.scope([product])
+            parameters = dict(product=product, price=self.price)
+            ticks = self.page(**parameters, **kwargs)
             ticks = ticks.sort_values(by="datetime", ascending=False, inplace=False)
+            ticks = ticks.reset_index(drop=True, inplace=False)
             if ticks is None or bool(ticks.empty): continue
             results = self.results(scope=scope, size=len(ticks))
             self.console("Downloaded", results)
@@ -79,6 +81,11 @@ class IbkrTicksDownloader(IbkrDownloader):
 
 class IbkrStockTicksDownloader(IbkrDownloader, instrument=Instrument.STOCK): pass
 class IbkrOptionTicksDownloader(IbkrDownloader, instrument=Instrument.OPTION): pass
+
+class IbkrTradeStockTicksDownloader(IbkrDownloader, price=Price.TRADE): pass
+class IbkrQuoteStockTicksDownloader(IbkrDownloader, price=Price.QUOTE): pass
+class IbkrTradeOptionTicksDownloader(IbkrDownloader, price=Price.TRADE): pass
+class IbkrQuoteOptionTicksDownloader(IbkrDownloader, price=Price.QUOTE): pass
 
 
 
