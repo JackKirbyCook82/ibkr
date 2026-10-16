@@ -7,6 +7,7 @@ Created on Sun Oct 4 2026
 
 """
 
+import pandas as pd
 from abc import ABC
 from ib_async import util
 from itertools import chain
@@ -22,12 +23,12 @@ from support.custom import DateRange
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["IkbrStockTicksDownloader", "IkbrOptionTicksDownloader"]
+__all__ = ["IbkrStockTicksDownloader", "IbkrOptionTicksDownloader"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class IkbrTicksPage(IbkrPage, ABC):
+class IbkrTicksPage(IbkrPage, ABC):
     def __call__(self, *args, product, price, frequency, history, **kwargs):
         assert frequency is not None and bool(frequency)
         assert history is not None and bool(history)
@@ -57,16 +58,27 @@ class IkbrTicksPage(IbkrPage, ABC):
             stop = stop - Timedelta(seconds=1)
 
 
-class IkbrTicksDownloader(IbkrDownloader):
-    pass
+class IbkrTicksDownloader(IbkrDownloader):
+    def __call__(self, products, /, **kwargs):
+        if not isinstance(products, list): products = [products]
+        ticks = list(self.downloader(products, **kwargs))
+        if not ticks: return None
+        ticks = pd.concat(list(ticks), axis=0)
+        return ticks
+
+    def downloader(self, products, /, **kwargs):
+        for product in products:
+            scope = self.scope([products])
+            ticks = self.page(product=product, **kwargs)
+            ticks = ticks.sort_values(by="datetime", ascending=False, inplace=False)
+            if ticks is None or bool(ticks.empty): continue
+            results = self.results(scope=scope, size=len(ticks))
+            self.console("Downloaded", results)
+            yield ticks
 
 
-class IkbrStockTicksDownloader(IbkrDownloader, instrument=Instrument.STOCK):
-    pass
-
-
-class IkbrOptionTicksDownloader(IbkrDownloader, instrument=Instrument.OPTION):
-    pass
+class IbkrStockTicksDownloader(IbkrDownloader, instrument=Instrument.STOCK): pass
+class IbkrOptionTicksDownloader(IbkrDownloader, instrument=Instrument.OPTION): pass
 
 
 

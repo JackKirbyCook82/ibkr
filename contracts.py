@@ -15,12 +15,12 @@ from finance.querys import Contract
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["IkbrContractDownloader"]
+__all__ = ["IbkrContractDownloader"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class IkbrContractPage(IbkrPage):
+class IbkrContractPage(IbkrPage):
     def __call__(self, *args, product, expires, strikes, **kwargs):
         assert expires is not None and bool(expires)
         assert strikes is not None and bool(strikes)
@@ -48,8 +48,22 @@ class IkbrContractPage(IbkrPage):
             yield contract
 
 
-class IkbrContractDownloader(IbkrDownloader, page=IkbrContractPage):
-    pass
+class IbkrContractDownloader(IbkrDownloader, page=IbkrContractPage):
+    def __call__(self, products, /, **kwargs):
+        if not isinstance(products, list): products = [products]
+        contracts = self.downloader(products, **kwargs)
+        contracts = list(contracts)
+        contracts.sort(key=lambda contract: (contract.ticker, contract.expire))
+        return contracts
+
+    def downloader(self, products, /, **kwargs):
+        for product in products:
+            scope = self.scope([product])
+            contracts = self.page(product=product, **kwargs)
+            results = self.results(scope=scope, size=len(contracts))
+            self.console("Downloaded", results)
+            for contract in contracts: yield contract
+
 
 
 

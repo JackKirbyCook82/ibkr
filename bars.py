@@ -7,6 +7,7 @@ Created on Sun Oct 4 2026
 
 """
 
+import pandas as pd
 from abc import ABC
 from ib_async import util
 from itertools import chain
@@ -21,12 +22,12 @@ from support.custom import DateRange
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["IkbrStockBarsDownloader", "IkbrOptionBarsDownloader"]
+__all__ = ["IbkrStockBarsDownloader", "IbkrOptionBarsDownloader"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class IkbrBarsPage(IbkrPage, ABC):
+class IbkrBarsPage(IbkrPage, ABC):
     def __call__(self, *args, product, price, frequency, history, **kwargs):
         assert frequency is not None and bool(frequency)
         assert history is not None and bool(history)
@@ -53,16 +54,27 @@ class IkbrBarsPage(IbkrPage, ABC):
         yield bars
 
 
-class IkbrBarsDownloader(IbkrDownloader):
-    pass
+class IbkrBarsDownloader(IbkrDownloader):
+    def __call__(self, products, /, **kwargs):
+        if not isinstance(products, list): products = [products]
+        bars = list(self.downloader(products, **kwargs))
+        if not bars: return None
+        bars = pd.concat(list(bars), axis=0)
+        return bars
+
+    def downloader(self, products, /, **kwargs):
+        for product in products:
+            scope = self.scope([product])
+            bars = self.page(product=product, **kwargs)
+            bars = bars.sort_values(by="datetime", ascending=False, inplace=False)
+            if bars is None or bool(bars.empty): continue
+            results = self.results(scope=scope, size=len(bars))
+            self.console("Downloaded", results)
+            yield bars
 
 
-class IkbrStockBarsDownloader(IbkrDownloader, instrument=Instrument.STOCK):
-    pass
-
-
-class IkbrOptionBarsDownloader(IbkrDownloader, instrument=Instrument.OPTION):
-    pass
+class IbkrStockBarsDownloader(IbkrDownloader, instrument=Instrument.STOCK): pass
+class IbkrOptionBarsDownloader(IbkrDownloader, instrument=Instrument.OPTION): pass
 
 
 
