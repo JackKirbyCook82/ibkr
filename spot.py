@@ -57,12 +57,8 @@ class IbkrSpotDownloader(IbkrDownloader, page=IbkrSpotPage):
             yield bars
 
 
-class IbkrStockSpotDownloader(IbkrSpotDownloader, instrument=Instrument.STOCK):
-    pass
-
-
-class IbkrOptionSpotDownloader(IbkrSpotDownloader, instrument=Instrument.OPTION):
-    pass
+class IbkrStockSpotDownloader(IbkrSpotDownloader, instrument=Instrument.STOCK): pass
+class IbkrOptionSpotDownloader(IbkrSpotDownloader, instrument=Instrument.OPTION): pass
 
 
 
