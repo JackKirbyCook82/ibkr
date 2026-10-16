@@ -23,7 +23,7 @@ from support.custom import DateRange
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["IbkrStockTicksDownloader", "IbkrOptionTicksDownloader"]
+__all__ = ["IbkrTradeStockTicksDownloader", "IbkrQuoteStockTicksDownloader", "IbkrTradeOptionTicksDownloader", "IbkrQuoteOptionTicksDownloader"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
