@@ -39,6 +39,9 @@ class IbkrSecurityError(IbkrError): pass
 class IbkrFrequencyError(IbkrError): pass
 class IbkrFrequencyByError(IbkrFrequencyError): pass
 class IbkrFrequencySpanError(IbkrFrequencyError): pass
+class IbkrSocketError(IbkrError): pass
+class IbkrSocketClientError(IbkrSocketError): pass
+class IbkrSocketLimitError(IbkrSocketError): pass
 
 
 @dataclass(frozen=True)
@@ -76,10 +79,27 @@ class IbkrFrequencies(metaclass=CollectionMeta):
 
 
 class IbkrSocketMeta(ABCMeta):
-    def __call__(cls, *args, **kwargs):
-        instance = super().__call__(*args, **kwargs)
-        instance.connection = ib_async.IB()
+    instances = dict()
+    registry = dict()
+    margin = 0.20
+    limit = 100
+
+    def __call__(cls, *args, host, port, client, **kwargs):
+        try: instance = type(cls).instances[client]
+        except KeyError:
+            parameters = dict(host=host, port=port, client=client)
+            instance = super().__call__(*args, **parameters, **kwargs)
+            instance.connection = ib_async.IB()
+        if type(cls).instances[client].host != host: raise IbkrSocketClientError()
+        if type(cls).instances[client].port != port: raise IbkrSocketClientError()
+        type(cls).instances[client] = instance
         return instance
+
+    @property
+    def capacity(cls):
+        limit = int(type(cls).limit * type(cls).margin)
+        size = len(type(cls).instances)
+        return int(limit - size)
 
 
 class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
@@ -93,6 +113,14 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
 
     def start(self): self.connection.connect(host=self.host, port=self.port, clientId=self.client)
     def stop(self): self.connection.disconnect()
+
+    def subscribe(self, product):
+        with self.mutex:
+            pass
+
+    def unsubscribe(self, product):
+        with self.mutex:
+            pass
 
     @singledispatchmethod
     def qualify(self, security): raise TypeError(type(security))
@@ -126,6 +154,20 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
     def host(self): return self.__host
     @property
     def port(self): return self.__port
+
+
+class IbkrSubscription(object):
+    def __init__(self, source):
+        self.__products = dict()
+        self.__source = source
+
+    def __enter__(self): return self
+    def __exit__(self, error_type, error_value, error_traceback): pass
+
+    @property
+    def products(self): return self.__products
+    @property
+    def source(self): return self.__source
 
 
 class IbkrPage(WebSOCKPage):
