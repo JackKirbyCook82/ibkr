@@ -13,7 +13,8 @@ import numpy as np
 import pandas as pd
 from typing import Callable
 from abc import ABC, ABCMeta
-from dataclasses import dataclass
+from multiprocessing import RLock
+from dataclasses import dataclass, field
 from datetime import datetime as Datetime
 from functools import singledispatchmethod
 
@@ -78,35 +79,49 @@ class IbkrFrequencies(metaclass=CollectionMeta):
         return f"{int(span)} {str(frequencies[by].code)}{'s' if span > 1 else ''}"
 
 
-class IbkrSocketMeta(ABCMeta):
-    instances = dict()
-    registry = dict()
-    margin = 0.20
-    limit = 100
+@dataclass(frozen=True)
+class IbkrStructure:
+    security: ib_async.Stock | ib_async.Option
+    market: ib_async.Ticker
 
-    def __call__(cls, *args, host, port, client, **kwargs):
-        try: instance = type(cls).instances[client]
-        except KeyError:
-            parameters = dict(host=host, port=port, client=client)
-            instance = super().__call__(*args, **parameters, **kwargs)
-            instance.connection = ib_async.IB()
-        if type(cls).instances[client].host != host: raise IbkrSocketClientError()
-        if type(cls).instances[client].port != port: raise IbkrSocketClientError()
-        type(cls).instances[client] = instance
-        return instance
+
+@dataclass(frozen=False)
+class IbkrNamespace:
+    limit: int; margin: float
+    instances: dict = field(default_factory=dict)
+    registry: dict = field(default_factory=dict)
+    watchlist: dict = field(default_factory=dict)
+    mutex: object = field(default_factory=RLock, init=False, repr=False, compare=False)
 
     @property
-    def capacity(cls):
-        limit = int(type(cls).limit * type(cls).margin)
-        size = len(type(cls).instances)
+    def capacity(self):
+        limit = int(self.limit * self.margin)
+        size = len(self.instances)
         return int(limit - size)
+
+
+class IbkrSocketMeta(ABCMeta):
+    namespace = IbkrNamespace(limit=100, margin=0.20)
+
+    def __call__(cls, *args, host, port, client, **kwargs):
+        namespace = type(cls).namespace
+        try: instance = namespace.instances[client]
+        except KeyError:
+            parameters = dict(host=host, port=port, client=client, namespace=namespace)
+            instance = super().__call__(*args, **parameters, **kwargs)
+            instance.connection = ib_async.IB()
+        if namespace.instances[client].host != host: raise IbkrSocketClientError()
+        if namespace.instances[client].port != port: raise IbkrSocketClientError()
+        namespace.instances[client] = instance
+        return instance
 
 
 class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
     def __bool__(self): return super().__bool__() and self.connected
-    def __init__(self, *args, host, port, client, **kwargs):
+    def __init__(self, *args, host, port, client, namespace, **kwargs):
         assert isinstance(client, int)
         super().__init__(*args, **kwargs)
+        self.__namespace = namespace
         self.__client = client
         self.__host = host
         self.__port = port
@@ -149,6 +164,8 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
     @property
     def connected(self): return self.connection.isConnected()
     @property
+    def namespaces(self): return self.__namespace
+    @property
     def client(self): return self.__client
     @property
     def host(self): return self.__host
@@ -158,14 +175,11 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
 
 class IbkrSubscription(object):
     def __init__(self, source):
-        self.__products = dict()
         self.__source = source
 
     def __enter__(self): return self
     def __exit__(self, error_type, error_value, error_traceback): pass
 
-    @property
-    def products(self): return self.__products
     @property
     def source(self): return self.__source
 
