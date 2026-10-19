@@ -46,7 +46,7 @@ class IbkrSpotDownloader(IbkrDownloader, page=IbkrSpotPage):
         return bars
 
     def downloader(self, products, /, **kwargs):
-        products = [products[index:index + 75] for index in range(0, len(products), 75)]
+        products = [products[index:index + self.limit] for index in range(0, len(products), self.limit)]
         for products in products:
             scope = self.scope(products)
             parameters = dict(products=products)

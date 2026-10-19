@@ -13,13 +13,12 @@ import numpy as np
 import pandas as pd
 from typing import Callable
 from abc import ABC, ABCMeta
-from multiprocessing import RLock
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime as Datetime
 from functools import singledispatchmethod
 
 from finance.querys import Symbol, Contract
-from finance.enumerations import Frequency, Price, Right
+from finance.enumerations import Frequency, Price, Right, Instrument
 from finance.reporting import Results
 from finance.osi import OSI
 from webscraping.webpages import WebSOCKPage
@@ -41,7 +40,6 @@ class IbkrFrequencyError(IbkrError): pass
 class IbkrFrequencyByError(IbkrFrequencyError): pass
 class IbkrFrequencySpanError(IbkrFrequencyError): pass
 class IbkrSocketError(IbkrError): pass
-class IbkrSocketClientError(IbkrSocketError): pass
 class IbkrSocketLimitError(IbkrSocketError): pass
 
 
@@ -79,63 +77,69 @@ class IbkrFrequencies(metaclass=CollectionMeta):
         return f"{int(span)} {str(frequencies[by].code)}{'s' if span > 1 else ''}"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
+class IbkrIdentity: host: str; port: int; client: int
+
+@dataclass(frozen=True, slots=True)
 class IbkrStructure:
     security: ib_async.Stock | ib_async.Option
     market: ib_async.Ticker
 
 
-@dataclass(frozen=False)
-class IbkrNamespace:
-    limit: int; margin: float
-    instances: dict = field(default_factory=dict)
-    registry: dict = field(default_factory=dict)
-    watchlist: dict = field(default_factory=dict)
-    mutex: object = field(default_factory=RLock, init=False, repr=False, compare=False)
-
-    @property
-    def capacity(self):
-        limit = int(self.limit * self.margin)
-        size = len(self.instances)
-        return int(limit - size)
-
-
 class IbkrSocketMeta(ABCMeta):
-    namespace = IbkrNamespace(limit=100, margin=0.20)
+    instances = dict()
 
     def __call__(cls, *args, host, port, client, **kwargs):
-        namespace = type(cls).namespace
-        try: instance = namespace.instances[client]
+        identity = IbkrIdentity(host, port, client)
+        try: instance = type(cls).instances[identity]
         except KeyError:
-            parameters = dict(host=host, port=port, client=client, namespace=namespace)
-            instance = super().__call__(*args, **parameters, **kwargs)
+            instance = super().__call__(*args, identity=identity, **kwargs)
             instance.connection = ib_async.IB()
-        if namespace.instances[client].host != host: raise IbkrSocketClientError()
-        if namespace.instances[client].port != port: raise IbkrSocketClientError()
-        namespace.instances[client] = instance
+        type(cls).instances[identity] = instance
         return instance
 
 
 class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
     def __bool__(self): return super().__bool__() and self.connected
-    def __init__(self, *args, host, port, client, namespace, **kwargs):
-        assert isinstance(client, int)
+    def __init__(self, *args, identity, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__namespace = namespace
-        self.__client = client
-        self.__host = host
-        self.__port = port
+        self.__structures = dict()
+        self.__securities = dict()
+        self.__identity = identity
 
     def start(self): self.connection.connect(host=self.host, port=self.port, clientId=self.client)
     def stop(self): self.connection.disconnect()
 
     def subscribe(self, product):
         with self.mutex:
-            pass
+            if product not in self.structures: return
+            self.structures[product] = self.create(product)
 
     def unsubscribe(self, product):
         with self.mutex:
-            pass
+            if product not in self.structures: return
+            self.destroy(product)
+            del self.structures[product]
+
+    def create(self, product):
+        try: security = self.securities[product]
+        except KeyError: security = self.security(product)
+        if not bool(security.conId): security = self.qualify(security)
+        market = self.connection.reqMktData(security)
+        self.securities[product] = security
+        return IbkrStructure(security, market)
+
+    def destroy(self, product):
+        structure = self.structures[product]
+        security = structure.security
+        self.connection.cancelMktData(security)
+
+    def security(self, product):
+        try: return self.securities[product]
+        except KeyError: pass
+        if product.record is Symbol: return ib_async.Stock(product.ticker, "SMART", "USD")
+        elif product.record is Contract: return ib_async.Option(product.ticker, product.expire.strftime("%Y%m%d"), product.strike, str(product.right).upper()[0], "SMART")
+        else: raise TypeError(type(product.record))
 
     @singledispatchmethod
     def qualify(self, security): raise TypeError(type(security))
@@ -145,6 +149,7 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
         qualified = self.connection.qualifyContracts(*securities)
         if len(securities) != len(qualified): raise IbkrSecurityError()
         if None in qualified: raise IbkrSecurityError()
+        for security in qualified: self.securities[security] = security
         return qualified
 
     @qualify.register(ib_async.Stock)
@@ -153,33 +158,87 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
         try: qualified = self.connection.qualifyContracts(security)[0]
         except IndexError: raise IbkrSecurityError()
         if qualified is None: raise IbkrSecurityError()
+        self.securities[security] = qualified
         return qualified
-
-    @staticmethod
-    def security(product):
-        if product.record is Symbol: return ib_async.Stock(product.ticker, "SMART", "USD")
-        elif product.record is Contract: return ib_async.Option(product.ticker, product.expire.strftime("%Y%m%d"), product.strike, str(product.right).upper()[0], "SMART")
-        else: raise TypeError(type(product.record))
 
     @property
     def connected(self): return self.connection.isConnected()
     @property
-    def namespaces(self): return self.__namespace
+    def client(self): return self.identity.client
     @property
-    def client(self): return self.__client
+    def host(self): return self.identity.host
     @property
-    def host(self): return self.__host
+    def port(self): return self.identity.port
+
     @property
-    def port(self): return self.__port
+    def structures(self): return self.__structures
+    @property
+    def securities(self): return self.__securities
+    @property
+    def identity(self): return self.__identity
 
 
-class IbkrSubscription(object):
-    def __init__(self, source):
+@dataclass(frozen=True, slots=True)
+class IbkrSnapshot:
+    product: object; instrument: Instrument; datetime: Datetime
+    trade: float; bid: float; ask: float
+    size: int; demand: int; supply: int
+
+    @property
+    def series(self):
+        if self.instrument == Instrument.STOCK: product = {attribute: getattr(self.product, attribute) for attribute in list(Symbol)}
+        elif self.instrument == Instrument.OPTION: product = {attribute: getattr(self.product, attribute) for attribute in list(Contract)}
+        else: raise TypeError(type(self.instrument))
+        product = product | dict(instrument=self.instrument, datetime=self.datetime)
+        prices = dict(trade=self.trade, bid=self.bid, ask=self.ask)
+        sizes = dict(size=self.size, demand=self.demand, supply=self.supply)
+        return pd.Series(product | prices | sizes)
+
+
+class IbkrSubscriptionMeta(type):
+    def __call__(cls, source, *args, products, **kwargs):
+        assert isinstance(source, IbkrSocket) and isinstance(products, list)
+        securities = source.qualify(products)
+        for product, security in zip(products, securities):
+            source.subscribe(product)
+            product["security"] = security
+        instance = super().__call__(source, *args, products=products, **kwargs)
+        return instance
+
+
+class IbkrSubscription(object, metaclass=IbkrSubscriptionMeta):
+    def __init__(self, source, *args, products, **kwargs):
+        assert isinstance(products, list) and bool(products)
+        assert isinstance(source, IbkrSocket)
+        self.__products = products
         self.__source = source
 
     def __enter__(self): return self
-    def __exit__(self, error_type, error_value, error_traceback): pass
+    def __exit__(self, error_type, error_value, error_traceback):
+        for product in self.products:
+            self.source.unsubscribe(product)
 
+    def __iter__(self):
+        for product in self.products:
+            yield self.snapshot(product)
+
+    def __getitem__(self, product): return self.snapshot(product)
+    def __call__(self, *args, **kwargs):
+        series = [snapshot.series for snapshot in self]
+        return pd.concat(series, axis=0)
+
+    def snapshot(self, product):
+        security = self.source.structures[product].security
+        market = self.source.structures[product].market
+        if isinstance(security, ib_async.Stock): instrument = Instrument.STOCK
+        elif isinstance(security, ib_async.Option): instrument = Instrument.OPTION
+        else: raise TypeError(type(security))
+        prices = dict(trade=market.last, bid=market.bid, ask=market.ask)
+        sizes = dict(size=market.lastSize, demand=market.bidSize, supply=market.askSize)
+        return IbkrSnapshot(product=product, instrument=instrument, datetime=market.time, **prices, **sizes)
+
+    @property
+    def products(self): return self.__products
     @property
     def source(self): return self.__source
 
@@ -261,14 +320,17 @@ class IbkrDownloader(Results, Logging, ABC):
         namespace = getattr(cls, "__namespace__", {})
         instrument = kwargs.get("instrument", namespace.get("instrument", None))
         price = kwargs.get("price", namespace.get("price", None))
+        limit = kwargs.get("limit", namespace.get("limit", 80))
         page = kwargs.get("page", namespace.get("page", None))
-        cls.__namespace__ = dict(instrument=instrument, price=price, page=page)
+        namespace = dict(instrument=instrument, limit=limit, price=price, page=page)
+        cls.__namespace__ = namespace
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.__page = self.namespace["page"](*args, **kwargs)
         self.__instrument = self.namespace["instrument"]
         self.__price = self.namespace["price"]
+        self.__limit = self.namespace["limit"]
 
     def scope(self, products, **kwargs):
         if self.instrument is None: raise ValueError(self.instrument)
@@ -280,6 +342,8 @@ class IbkrDownloader(Results, Logging, ABC):
     def instrument(self): return self.__instrument
     @property
     def price(self): return self.__price
+    @property
+    def limit(self): return self.__limit
     @property
     def page(self): return self.__page
 
