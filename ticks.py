@@ -79,8 +79,8 @@ class IbkrTicksDownloader(IbkrDownloader, page=IbkrTicksPage):
             yield ticks
 
 
-class IbkrStockTicksDownloader(IbkrDownloader, instrument=Instrument.STOCK): pass
-class IbkrOptionTicksDownloader(IbkrDownloader, instrument=Instrument.OPTION): pass
+class IbkrStockTicksDownloader(IbkrTicksDownloader, instrument=Instrument.STOCK): pass
+class IbkrOptionTicksDownloader(IbkrTicksDownloader, instrument=Instrument.OPTION): pass
 
 class IbkrTradeStockTicksDownloader(IbkrStockTicksDownloader, price=Price.TRADE): pass
 class IbkrQuoteStockTicksDownloader(IbkrStockTicksDownloader, price=Price.QUOTE): pass

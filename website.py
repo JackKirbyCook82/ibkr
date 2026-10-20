@@ -93,7 +93,7 @@ class IbkrStructure:
 class IbkrSocketMeta(ABCMeta):
     instance = None
 
-    def __call__(cls, *args, host, port, client, **kwargs):
+    def __call__(cls, *args, host, port, client=1, **kwargs):
         identity = IbkrIdentity(host, port, client)
         if type(cls).instance is not None:
             if cls.instance.identity != identity: raise IbkrSocketIdentityError()
@@ -106,11 +106,12 @@ class IbkrSocketMeta(ABCMeta):
 
 class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
     def __bool__(self): return super().__bool__() and self.connected
-    def __init__(self, *args, identity, **kwargs):
+    def __init__(self, *args, identity, limit=80, **kwargs):
         super().__init__(*args, **kwargs)
         self.__structures = dict()
         self.__securities = dict()
         self.__initialized = set()
+        self.__limit = int(limit)
         self.__identity = identity
 
     def start(self): self.connection.connect(host=self.host, port=self.port, clientId=self.client)
@@ -132,14 +133,18 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
     def subscribe(self, product):
         with self.mutex:
             try: self.structures[product].references += 1
-            except KeyError: self.structures[product] = self.create(product)
+            except KeyError:
+                if self.capacity <= 0: raise IbkrSocketLimitError()
+                self.structures[product] = self.create(product)
 
     def unsubscribe(self, product):
         with self.mutex:
-            try: self.structures[product].references -= 1
-            except KeyError:
-                try: self.destroy(product)
-                except KeyError: pass
+            try: structure = self.structures[product]
+            except KeyError: return
+            structure.references -= 1
+            if structure.references == 0:
+                self.destroy(product)
+                del self.structures[product]
 
     def create(self, product):
         try: security = self.securities[product]
@@ -151,11 +156,10 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
 
     def destroy(self, product):
         structure = self.structures[product]
-        assert structure.references == 1
+        assert structure.references == 0
         security = structure.security
         self.connection.cancelMktData(security)
         self.initialized.discard(product)
-        del self.structures[product]
 
     def security(self, product):
         try: return self.securities[product]
@@ -183,6 +187,11 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
         return qualified
 
     @property
+    def capacity(self): return self.limit - self.usage
+    @property
+    def usage(self): return len(self.securities)
+
+    @property
     def connected(self): return self.connection.isConnected()
     @property
     def client(self): return self.identity.client
@@ -199,6 +208,8 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
     def initialized(self): return self.__initialized
     @property
     def identity(self): return self.__identity
+    @property
+    def limit(self): return self.__limit
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,13 +230,17 @@ class IbkrSnapshot:
 
 
 class IbkrSubscriptionMeta(type):
-    def __call__(cls, source, *args, products, **kwargs):
-        assert isinstance(source, IbkrSocket) and isinstance(products, list)
+    def __call__(cls, source, *args, **kwargs):
+        assert isinstance(source, IbkrSocket)
+        products = list()
         try:
-            for product in products: source.subscribe(product)
-        except Exception as error:
-            for product in products: source.unsubscribe(product)
-            raise error
+            for product in kwargs.get("products", []):
+                source.subscribe(product)
+                products.append(product)
+        except Exception:
+            for product in products:
+                source.unsubscribe(product)
+            raise
         instance = super().__call__(source, *args, products=products, **kwargs)
         return instance
 
