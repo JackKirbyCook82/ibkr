@@ -82,10 +82,10 @@ class IbkrTicksDownloader(IbkrDownloader, page=IbkrTicksPage):
 class IbkrStockTicksDownloader(IbkrDownloader, instrument=Instrument.STOCK): pass
 class IbkrOptionTicksDownloader(IbkrDownloader, instrument=Instrument.OPTION): pass
 
-class IbkrTradeStockTicksDownloader(IbkrDownloader, price=Price.TRADE): pass
-class IbkrQuoteStockTicksDownloader(IbkrDownloader, price=Price.QUOTE): pass
-class IbkrTradeOptionTicksDownloader(IbkrDownloader, price=Price.TRADE): pass
-class IbkrQuoteOptionTicksDownloader(IbkrDownloader, price=Price.QUOTE): pass
+class IbkrTradeStockTicksDownloader(IbkrStockTicksDownloader, price=Price.TRADE): pass
+class IbkrQuoteStockTicksDownloader(IbkrStockTicksDownloader, price=Price.QUOTE): pass
+class IbkrTradeOptionTicksDownloader(IbkrOptionTicksDownloader, price=Price.TRADE): pass
+class IbkrQuoteOptionTicksDownloader(IbkrOptionTicksDownloader, price=Price.QUOTE): pass
 
 
 
