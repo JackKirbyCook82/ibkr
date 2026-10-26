@@ -279,22 +279,19 @@ class IbkrSubscription(object, metaclass=IbkrSubscriptionMeta):
     def __getitem__(self, product):
         return self.snapshot(product)
 
-    def __call__(self, *args, **kwargs):
-        return pd.DataFrame([snapshot.series for snapshot in self])
+#    def __call__(self, *args, **kwargs):
+#        return pd.DataFrame([snapshot.series for snapshot in self])
 
-    def snapshot(self, product):
-        self.source.prepare(product)
-        security = self.source.structures[product].security
-        market = self.source.structures[product].market
-        if isinstance(security, ib_async.Stock): instrument = Instrument.STOCK
-        elif isinstance(security, ib_async.Option): instrument = Instrument.OPTION
-        else: raise TypeError(type(security))
-
-
-
-        prices = dict(trade=market.last, bid=market.bid, ask=market.ask)
-        sizes = dict(size=market.lastSize, demand=market.bidSize, supply=market.askSize)
-        return IbkrSnapshot(product=product, instrument=instrument, datetime=market.time, **prices, **sizes)
+#    def snapshot(self, product):
+#        self.source.prepare(product)
+#        security = self.source.structures[product].security
+#        market = self.source.structures[product].market
+#        if isinstance(security, ib_async.Stock): instrument = Instrument.STOCK
+#        elif isinstance(security, ib_async.Option): instrument = Instrument.OPTION
+#        else: raise TypeError(type(security))
+#        prices = dict(trade=market.last, bid=market.bid, ask=market.ask)
+#        sizes = dict(size=market.lastSize, demand=market.bidSize, supply=market.askSize)
+#        return IbkrSnapshot(product=product, instrument=instrument, datetime=market.time, **prices, **sizes)
 
     @property
     def products(self): return self.__products
