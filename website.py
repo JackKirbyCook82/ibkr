@@ -217,31 +217,20 @@ class IbkrVolatility: historic: float; realized: float; predicted: float
 @dataclass(frozen=True, slots=True)
 class IbkrDividends: historic: float; predicted: float
 
-
-#    @property
-#    def series(self):
-#        if self.instrument == Instrument.STOCK: product = {attribute: getattr(self.product, attribute) for attribute in list(Symbol)}
-#        elif self.instrument == Instrument.OPTION: product = {attribute: getattr(self.product, attribute) for attribute in list(Contract)}
-#        else: raise TypeError(type(self.instrument))
-#        product = product | dict(instrument=self.instrument, datetime=self.datetime)
-#        prices = dict(trade=self.trade, bid=self.bid, ask=self.ask)
-#        sizes = dict(size=self.size, demand=self.demand, supply=self.supply)
-#        return pd.Series(product | prices | sizes)
-
+@dataclass(frozen=True, slots=True)
+class IbkrPrice: trade: float; bid: float; ask: float
 
 @dataclass(frozen=True, slots=True)
-class IbkrSnapshot:
-    product: object; instrument: Instrument; datetime: Datetime
-    trade: float; bid: float; ask: float
-    size: int; demand: int; supply: int
+class IbkrSize: size: int; demand: int; supply: int
 
 @dataclass(frozen=True, slots=True)
-class IbkrStockSnapshot(IbkrSnapshot):
-    volatility: IbkrVolatility
+class IbkrSnapshot: datetime: Datetime; instrument: Instrument; product: object; price: IbkrPrice; size: IbkrSize; volume: int
 
 @dataclass(frozen=True, slots=True)
-class IbkrOptionSnapshot(IbkrSnapshot):
-    right: Right; dividends: IbkrDividends
+class IbkrStockSnapshot(IbkrSnapshot): volatility: IbkrVolatility; dividends: IbkrDividends
+
+@dataclass(frozen=True, slots=True)
+class IbkrOptionSnapshot(IbkrSnapshot): interest: int
 
 
 class IbkrSubscriptionMeta(type):
@@ -279,19 +268,24 @@ class IbkrSubscription(object, metaclass=IbkrSubscriptionMeta):
     def __getitem__(self, product):
         return self.snapshot(product)
 
-#    def __call__(self, *args, **kwargs):
-#        return pd.DataFrame([snapshot.series for snapshot in self])
-
-#    def snapshot(self, product):
-#        self.source.prepare(product)
-#        security = self.source.structures[product].security
-#        market = self.source.structures[product].market
-#        if isinstance(security, ib_async.Stock): instrument = Instrument.STOCK
-#        elif isinstance(security, ib_async.Option): instrument = Instrument.OPTION
-#        else: raise TypeError(type(security))
-#        prices = dict(trade=market.last, bid=market.bid, ask=market.ask)
-#        sizes = dict(size=market.lastSize, demand=market.bidSize, supply=market.askSize)
-#        return IbkrSnapshot(product=product, instrument=instrument, datetime=market.time, **prices, **sizes)
+    def snapshot(self, product):
+        self.source.prepare(product)
+        security = self.source.structures[product].security
+        market = self.source.structures[product].market
+        size = IbkrSize(market.lastSize, market.bidSize, market.askSize)
+        price = IbkrPrice(market.last, market.bid, market.ask)
+        parameters = dict(datetime=market.time, price=price, size=size)
+        product = dict(product.items())
+        if isinstance(security, ib_async.Stock):
+            volatility = IbkrVolatility(market.histVolatility, market.rtHistVolatility, market.impliedVolatility)
+            dividends = IbkrDividends(market.dividends.past12Months, market.dividends.next12Months)
+            snapshot = IbkrStockSnapshot(instrument=Instrument.STOCK, volatility=volatility, dividends=dividends, volume=market.volume, **parameters, **product)
+        elif isinstance(security, ib_async.Option):
+            volume = {Right.CALL: market.callVolume, Right.PUT: market.putVolume}[product["right"]]
+            interest = {Right.CALL: market.callOpenInterest, Right.PUT: market.putOpenInterest}[product["right"]]
+            snapshot = IbkrOptionSnapshot(instrument=Instrument.OPTION, volume=volume, interest=interest, **parameters, **product)
+        else: raise TypeError(type(security))
+        return snapshot
 
     @property
     def products(self): return self.__products
