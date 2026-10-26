@@ -50,7 +50,6 @@ class IbkrSocketLimitError(IbkrSocketError): pass
 class IbkrColumn: name: str; code: str; parser: Callable
 class IbkrColumns(metaclass=CollectionMeta):
     datetime = IbkrColumn("datetime", "time", lambda string: pd.to_datetime(string, utc=True))
-    volume = IbkrColumn("volume", "volume", np.int64)
     size = IbkrColumn("size", "size", np.float32)
     supply = IbkrColumn("supply", "sizeAsk", np.float32)
     demand = IbkrColumn("demand", "sizeBid", np.float32)
@@ -213,20 +212,36 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
 
 
 @dataclass(frozen=True, slots=True)
+class IbkrVolatility: historic: float; realized: float; predicted: float
+
+@dataclass(frozen=True, slots=True)
+class IbkrDividends: historic: float; predicted: float
+
+
+#    @property
+#    def series(self):
+#        if self.instrument == Instrument.STOCK: product = {attribute: getattr(self.product, attribute) for attribute in list(Symbol)}
+#        elif self.instrument == Instrument.OPTION: product = {attribute: getattr(self.product, attribute) for attribute in list(Contract)}
+#        else: raise TypeError(type(self.instrument))
+#        product = product | dict(instrument=self.instrument, datetime=self.datetime)
+#        prices = dict(trade=self.trade, bid=self.bid, ask=self.ask)
+#        sizes = dict(size=self.size, demand=self.demand, supply=self.supply)
+#        return pd.Series(product | prices | sizes)
+
+
+@dataclass(frozen=True, slots=True)
 class IbkrSnapshot:
     product: object; instrument: Instrument; datetime: Datetime
     trade: float; bid: float; ask: float
     size: int; demand: int; supply: int
 
-    @property
-    def series(self):
-        if self.instrument == Instrument.STOCK: product = {attribute: getattr(self.product, attribute) for attribute in list(Symbol)}
-        elif self.instrument == Instrument.OPTION: product = {attribute: getattr(self.product, attribute) for attribute in list(Contract)}
-        else: raise TypeError(type(self.instrument))
-        product = product | dict(instrument=self.instrument, datetime=self.datetime)
-        prices = dict(trade=self.trade, bid=self.bid, ask=self.ask)
-        sizes = dict(size=self.size, demand=self.demand, supply=self.supply)
-        return pd.Series(product | prices | sizes)
+@dataclass(frozen=True, slots=True)
+class IbkrStockSnapshot(IbkrSnapshot):
+    volatility: IbkrVolatility
+
+@dataclass(frozen=True, slots=True)
+class IbkrOptionSnapshot(IbkrSnapshot):
+    right: Right; dividends: IbkrDividends
 
 
 class IbkrSubscriptionMeta(type):
@@ -274,6 +289,9 @@ class IbkrSubscription(object, metaclass=IbkrSubscriptionMeta):
         if isinstance(security, ib_async.Stock): instrument = Instrument.STOCK
         elif isinstance(security, ib_async.Option): instrument = Instrument.OPTION
         else: raise TypeError(type(security))
+
+
+
         prices = dict(trade=market.last, bid=market.bid, ask=market.ask)
         sizes = dict(size=market.lastSize, demand=market.bidSize, supply=market.askSize)
         return IbkrSnapshot(product=product, instrument=instrument, datetime=market.time, **prices, **sizes)
