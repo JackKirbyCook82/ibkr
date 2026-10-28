@@ -30,7 +30,7 @@ from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["IbkrSocket", "IbkrPage", "IbkrDownloader"]
+__all__ = ["IbkrSocket", "IbkrSubscription", "IbkrPage", "IbkrDownloader"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -212,7 +212,7 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
 
 
 @dataclass(frozen=True, slots=True)
-class IbkrVolatility: historic: float; realized: float; predicted: float
+class IbkrVolatility: historic: float; realized: float; implied: float
 
 @dataclass(frozen=True, slots=True)
 class IbkrDividends: historic: float; predicted: float
@@ -239,6 +239,10 @@ class IbkrSubscriptionMeta(type):
         products = list()
         try:
             for product in kwargs.get("products", []):
+                source.subscribe(product)
+                products.append(product)
+            product = kwargs.get("product", None)
+            if product is not None:
                 source.subscribe(product)
                 products.append(product)
         except Exception:
