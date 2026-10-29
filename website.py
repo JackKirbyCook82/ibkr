@@ -126,8 +126,12 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
         self.initialized.add(product)
 
     def ready(self, product):
+        if product.record is Symbol: attributes = ["histVolatility", "impliedVolatility", "rtHistVolatility", "dividends"]
+        elif product.record is Contract: attributes = ["callVolume", "putVolume", "callOpenInterest", "putOpenInterest"]
+        else: raise TypeError(type(product.record))
         market = self.structures[product].market
-        return not np.isnan(market.bid) and not np.isnan(market.ask)
+        attributes = [np.isnan(getattr(market, attribute)) for attribute in attributes]
+        return not any(attributes) and not np.isnan(market.bid) and not np.isnan(market.ask)
 
     def subscribe(self, product):
         with self.mutex:
@@ -149,7 +153,10 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
         try: security = self.securities[product]
         except KeyError: security = self.security(product)
         if not bool(security.conId): security = self.qualify(security)
-        market = self.connection.reqMktData(security)
+        if product.record is Symbol: attributes = "104,106,411,456"
+        elif product.record is Contract: attributes = "100,101"
+        else: raise TypeError(type(product.record))
+        market = self.connection.reqMktData(security, genericTickList=attributes)
         self.securities[product] = security
         return IbkrStructure(security, market)
 
@@ -188,7 +195,7 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
     @property
     def capacity(self): return self.limit - self.usage
     @property
-    def usage(self): return len(self.securities)
+    def usage(self): return len(self.structures)
 
     @property
     def connected(self): return self.connection.isConnected()
@@ -279,15 +286,14 @@ class IbkrSubscription(object, metaclass=IbkrSubscriptionMeta):
         size = IbkrSize(market.lastSize, market.bidSize, market.askSize)
         price = IbkrPrice(market.last, market.bid, market.ask)
         parameters = dict(datetime=market.time, price=price, size=size)
-        product = dict(product.items())
         if isinstance(security, ib_async.Stock):
             volatility = IbkrVolatility(market.histVolatility, market.rtHistVolatility, market.impliedVolatility)
             dividends = IbkrDividends(market.dividends.past12Months, market.dividends.next12Months)
-            snapshot = IbkrStockSnapshot(instrument=Instrument.STOCK, volatility=volatility, dividends=dividends, volume=market.volume, **parameters, **product)
+            snapshot = IbkrStockSnapshot(instrument=Instrument.STOCK, product=product, volatility=volatility, dividends=dividends, volume=market.volume, **parameters)
         elif isinstance(security, ib_async.Option):
             volume = {Right.CALL: market.callVolume, Right.PUT: market.putVolume}[product["right"]]
             interest = {Right.CALL: market.callOpenInterest, Right.PUT: market.putOpenInterest}[product["right"]]
-            snapshot = IbkrOptionSnapshot(instrument=Instrument.OPTION, volume=volume, interest=interest, **parameters, **product)
+            snapshot = IbkrOptionSnapshot(instrument=Instrument.OPTION, product=product, volume=volume, interest=interest, **parameters, **product)
         else: raise TypeError(type(security))
         return snapshot
 
@@ -300,7 +306,9 @@ class IbkrSubscription(object, metaclass=IbkrSubscriptionMeta):
 class IbkrPage(WebSOCKPage):
     def chain(self, *args, security, **kwargs):
         parameters = dict(underlyingSymbol=security.symbol, futFopExchange="", underlyingSecType="STK", underlyingConId=security.conId)
-        chain = self.source.connection.reqSecDefOptParams(**parameters)
+        chains = self.source.connection.reqSecDefOptParams(**parameters)
+        chain = next(chain for chain in chains if chain.exchange == "SMART")
+
         expires = [Datetime.strptime(expire, "%Y%m%d").date() for expire in chain.expirations]
         expires = [expire for expire in expires if expire in kwargs.get("expires", expires)]
         strikes = list(map(float, chain.strikes))
@@ -308,7 +316,7 @@ class IbkrPage(WebSOCKPage):
         rights = [str(right).upper()[0] for right in list(Right)]
         parameters = dict(symbol=security.symbol, exchange=chain.exchange, currency="USD", multiplier=chain.multiplier, tradingClass=chain.tradingClass)
         generator = itertools.product(expires, strikes, rights)
-        function = lambda expire, strike, right: ib_async.Option(**parameters, lastTradeDateOrContractMonth=expire, strike=strike, right=right)
+        function = lambda expire, strike, right: ib_async.Option(**parameters, lastTradeDateOrContractMonth=expire.strftime("%Y%m%d"), strike=strike, right=right)
         chain = [function(expire, strike, right) for expire, strike, right in generator]
         chain = self.source.qualify(chain)
         return chain

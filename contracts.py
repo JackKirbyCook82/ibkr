@@ -10,7 +10,7 @@ Created on Sun Oct 4 2026
 from ibkr.website import IbkrPage, IbkrDownloader
 from datetime import datetime as Datetime
 
-from finance.enumerations import Right
+from finance.enumerations import Right, Instrument
 from finance.querys import Contract
 
 __version__ = "1.0.0"
@@ -48,7 +48,7 @@ class IbkrContractPage(IbkrPage):
             yield contract
 
 
-class IbkrContractDownloader(IbkrDownloader, page=IbkrContractPage):
+class IbkrContractDownloader(IbkrDownloader, page=IbkrContractPage, instrument=Instrument.CONTRACT):
     def __call__(self, products, /, **kwargs):
         if not isinstance(products, list): products = [products]
         contracts = self.downloader(products, **kwargs)
@@ -58,8 +58,8 @@ class IbkrContractDownloader(IbkrDownloader, page=IbkrContractPage):
 
     def downloader(self, products, /, **kwargs):
         for product in products:
-            scope = self.scope([product])
             contracts = self.page(product=product, **kwargs)
+            scope = self.scope(contracts)
             results = self.results(scope=scope, size=len(contracts))
             self.console("Downloaded", results)
             for contract in contracts: yield contract
