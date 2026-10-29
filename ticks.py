@@ -29,14 +29,14 @@ __license__ = "MIT License"
 
 
 class IbkrTicksPage(IbkrPage, ABC):
-    def __call__(self, *args, product, price, frequency, history, **kwargs):
+    def __call__(self, *args, product, price, frequency, history, sparse=False, **kwargs):
         assert frequency is not None and bool(frequency)
         assert history is not None and bool(history)
         history = DateRange([Datetime.combine(date, Time.min, tzinfo=ZoneInfo("America/New_York")).astimezone(Timezone.utc) for date in history])
         try: security = product["security"]
         except KeyError: security = self.source.security(product)
         if not bool(security.conId): security = self.source.qualify(security)
-        parameters = dict(security=security, price=price, frequency=frequency, history=history)
+        parameters = dict(security=security, price=price, frequency=frequency, history=history, sparse=sparse)
         ticks = self.execute(*args, **parameters, **kwargs)
         return ticks
 

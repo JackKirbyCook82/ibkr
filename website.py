@@ -126,12 +126,13 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
         self.initialized.add(product)
 
     def ready(self, product):
-        if product.record is Symbol: attributes = ["histVolatility", "impliedVolatility", "rtHistVolatility", "dividends"]
-        elif product.record is Contract: attributes = ["callVolume", "putVolume", "callOpenInterest", "putOpenInterest"]
-        else: raise TypeError(type(product.record))
         market = self.structures[product].market
-        attributes = [np.isnan(getattr(market, attribute)) for attribute in attributes]
-        return not any(attributes) and not np.isnan(market.bid) and not np.isnan(market.ask)
+        quote = (not np.isnan(market.bid) and not np.isnan(market.ask))
+        if product.record is Symbol:
+            volatility = (not np.isnan(market.histVolatility) and not np.isnan(market.impliedVolatility) and not np.isnan(market.rtHistVolatility))
+            dividends = market.dividends is not None
+            return volatility and dividends and quote
+        else: return quote
 
     def subscribe(self, product):
         with self.mutex:
@@ -175,19 +176,21 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
         else: raise TypeError(type(product.record))
 
     @singledispatchmethod
-    def qualify(self, security): raise TypeError(type(security))
+    def qualify(self, security, /, certify=True): raise TypeError(type(security))
 
     @qualify.register(list)
-    def _(self, securities):
+    def _(self, securities, /, certify=True):
         qualified = self.connection.qualifyContracts(*securities)
-        if len(securities) != len(qualified): raise IbkrSocketSecurityError()
-        if None in qualified: raise IbkrSocketSecurityError()
+        if len(securities) != len(qualified) and bool(certify): raise IbkrSocketSecurityError()
+        if None in qualified and bool(certify): raise IbkrSocketSecurityError()
         return qualified
 
     @qualify.register(ib_async.Stock)
     @qualify.register(ib_async.Option)
-    def _(self, security):
-        try: qualified = self.connection.qualifyContracts(security)[0]
+    def _(self, security, /, certify=True):
+        qualified = self.connection.qualifyContracts(security)
+        if not bool(certify): return qualified
+        try: qualified = qualified[0]
         except IndexError: raise IbkrSocketSecurityError()
         if qualified is None: raise IbkrSocketSecurityError()
         return qualified
@@ -308,7 +311,6 @@ class IbkrPage(WebSOCKPage):
         parameters = dict(underlyingSymbol=security.symbol, futFopExchange="", underlyingSecType="STK", underlyingConId=security.conId)
         chains = self.source.connection.reqSecDefOptParams(**parameters)
         chain = next(chain for chain in chains if chain.exchange == "SMART")
-
         expires = [Datetime.strptime(expire, "%Y%m%d").date() for expire in chain.expirations]
         expires = [expire for expire in expires if expire in kwargs.get("expires", expires)]
         strikes = list(map(float, chain.strikes))
@@ -329,9 +331,9 @@ class IbkrPage(WebSOCKPage):
         bars = self.source.connection.reqHistoricalData(security, **parameters)
         return bars
 
-    def ticks(self, *args, security, stop, **kwargs):
+    def ticks(self, *args, security, stop, sparse=False, **kwargs):
         price = self.price(*args, **kwargs)
-        parameters = dict(whatToShow=price, startDateTime="", endDateTime=stop, numberOfTicks=1000, useRTH=True, ignoreSize=False)
+        parameters = dict(whatToShow=price, startDateTime="", endDateTime=stop, numberOfTicks=1000, useRTH=True, ignoreSize=not sparse)
         ticks = self.source.connection.reqHistoricalTicks(security, **parameters)
         return ticks
 
