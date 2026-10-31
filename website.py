@@ -21,7 +21,7 @@ from functools import singledispatchmethod
 from finance.querys import Symbol, Contract
 from finance.enumerations import Frequency, Price, Right, Instrument
 from finance.reporting import Results
-from finance.osi import OSI
+from finance.variables import OSI
 from webscraping.webpages import WebSOCKPage
 from webscraping.websources import WebSOCKSource
 from support.decorators import Dispatchers
@@ -311,10 +311,12 @@ class IbkrPage(WebSOCKPage):
         parameters = dict(underlyingSymbol=security.symbol, futFopExchange="", underlyingSecType="STK", underlyingConId=security.conId)
         chains = self.source.connection.reqSecDefOptParams(**parameters)
         chain = next(chain for chain in chains if chain.exchange == "SMART")
+
         expires = [Datetime.strptime(expire, "%Y%m%d").date() for expire in chain.expirations]
         expires = [expire for expire in expires if expire in kwargs.get("expires", expires)]
         strikes = list(map(float, chain.strikes))
         strikes = [strike for strike in list(map(float, chain.strikes)) if strike in kwargs.get("strikes", strikes)]
+
         rights = [str(right).upper()[0] for right in list(Right)]
         parameters = dict(symbol=security.symbol, exchange=chain.exchange, currency="USD", multiplier=chain.multiplier, tradingClass=chain.tradingClass)
         generator = itertools.product(expires, strikes, rights)
