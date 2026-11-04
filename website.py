@@ -8,13 +8,12 @@ Created on Sun Oct 4 2026
 """
 
 import time
-from types import SimpleNamespace
-
 import ib_async
 import numpy as np
 import pandas as pd
 from typing import Callable
 from abc import ABC, ABCMeta
+from types import SimpleNamespace
 from dataclasses import dataclass
 from datetime import datetime as Datetime
 from functools import singledispatchmethod
@@ -22,7 +21,7 @@ from functools import singledispatchmethod
 from finance.querys import Symbol, Contract
 from finance.enumerations import Frequency, Price, Right, Instrument
 from finance.reporting import Results
-from finance.options import OSI
+from finance.variables import OSI
 from webscraping.webpages import WebSOCKPage
 from webscraping.websources import WebSOCKSource
 from support.decorators import Dispatchers
@@ -308,18 +307,20 @@ class IbkrSubscription(object, metaclass=IbkrSubscriptionMeta):
 
 
 class IbkrPage(WebSOCKPage):
-    def chain(self, *args, security, **kwargs):
+    def securities(self, *args, security, settlements, **kwargs):
         parameters = dict(underlyingSymbol=security.symbol, futFopExchange="", underlyingSecType="STK", underlyingConId=security.conId)
         chains = self.source.connection.reqSecDefOptParams(**parameters)
         chain = next(chain for chain in chains if chain.exchange == "SMART")
-        return chain
-
-    def securities(self, chain, settlements, *args, security, **kwargs):
+        expires = [Datetime.strptime(expire, "%Y%m%d").date() for expire in chain.expirations]
+        strikes = list(map(float, chain.strikes))
+        settlements = [SimpleNamespace(expire=expire, strike=strike) for expire in expires for strike in strikes if (expire, strike) in settlements]
+        settlements.sort(key=lambda settlement: (settlement.expire, settlement.strike))
+        settlements = [SimpleNamespace(expire=settlement.expire, strike=settlement.strike, right=str(right).upper()[0]) for right in list(Right) for settlement in settlements]
         parameters = dict(symbol=security.symbol, exchange=chain.exchange, currency="USD", multiplier=chain.multiplier, tradingClass=chain.tradingClass)
         function = lambda settlement: ib_async.Option(**parameters, lastTradeDateOrContractMonth=settlement.expire.strftime("%Y%m%d"), strike=settlement.strike, right=settlement.right)
-        chain = list(map(function, settlements))
-        chain = self.source.qualify(chain)
-        return chain
+        securities = list(map(function, settlements))
+        securities = self.source.qualify(securities)
+        return securities
 
     def bars(self, *args, security, stop, **kwargs):
         frequency = self.frequency(*args, **kwargs)
@@ -367,25 +368,6 @@ class IbkrPage(WebSOCKPage):
         dataframe = dataframe.rename(columns={column.code: column.name for column in columns}, inplace=False)
         for column in columns: dataframe[column.name] = dataframe[column.name].apply(column.parser)
         return dataframe
-
-    @staticmethod
-    def expires(chain, *args, **kwargs):
-        expires = [Datetime.strptime(expire, "%Y%m%d").date() for expire in chain.expirations]
-        expires = [expire for expire in expires if expire in kwargs.get("expires", expires)]
-        return expires
-
-    @staticmethod
-    def strikes(chain, *args, **kwargs):
-        strikes = list(map(float, chain.strikes))
-        strikes = [strike for strike in strikes if strike in kwargs.get("strikes", strikes)]
-        return strikes
-
-    @staticmethod
-    def settlements(expires, strikes, *args, **kwargs):
-        settlements = [SimpleNamespace(expire=expire, strike=strike) for expire in expires for strike in strikes if strike in kwargs.get('settlements', {}).get(expire, [])]
-        settlements.sort(key=lambda settlement: (settlement.expire, settlement.strike))
-        settlements = [SimpleNamespace(expire=settlement.expire, strike=settlement.strike, right=str(right).upper()[0]) for right in list(Right) for settlement in settlements]
-        return settlements
 
     @staticmethod
     def price(*args, price, **kwargs): return {Price.TRADE: "TRADES", Price.MID: "MIDPOINT", Price.BID: "BID", Price.ASK: "ASK", Price.QUOTE: "BID_ASK"}[price]
