@@ -116,23 +116,32 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
     def start(self): self.connection.connect(host=self.host, port=self.port, clientId=self.client)
     def stop(self): self.connection.disconnect()
 
+#    def prepare(self, product, timeout=2):
+#        if product in self.initialized: return
+#        stop = time.monotonic() + timeout
+#        while not self.ready(product):
+#            remaining = stop - time.monotonic()
+#            if remaining <= 0: raise IbkrSocketMarketError(product)
+#            self.connection.waitOnUpdate(timeout=remaining)
+#        self.initialized.add(product)
+
     def prepare(self, product, timeout=2):
-        if product in self.initialized: return
-        stop = time.monotonic() + timeout
-        while not self.ready(product):
-            remaining = stop - time.monotonic()
-            if remaining <= 0: raise IbkrSocketMarketError(product)
-            self.connection.waitOnUpdate(timeout=remaining)
-        self.initialized.add(product)
+        pass
+
+#    def ready(self, product):
+#        market = self.structures[product].market
+#        quote = (not np.isnan(market.bid) and not np.isnan(market.ask))
+#        if product.record is Symbol:
+#            volatility = (not np.isnan(market.histVolatility) and not np.isnan(market.impliedVolatility))
+#            dividends = market.dividends is not None
+#            return volatility and dividends and quote
+#        else: return quote
 
     def ready(self, product):
-        market = self.structures[product].market
-        quote = (not np.isnan(market.bid) and not np.isnan(market.ask))
-        if product.record is Symbol:
-            volatility = (not np.isnan(market.histVolatility) and not np.isnan(market.impliedVolatility))
-            dividends = market.dividends is not None
-            return volatility and dividends and quote
-        else: return quote
+        pass
+
+    def valid(self, product):
+        pass
 
     def subscribe(self, product):
         with self.mutex:
@@ -254,12 +263,12 @@ class IbkrSubscriptionMeta(type):
     def __call__(cls, source, *args, **kwargs):
         assert isinstance(source, IbkrSocket)
         subscribed = list()
-        unsubscribed = kwargs.pop("products", [])
+        requested = list(kwargs.pop("products", []))
         if "product" in kwargs:
             product = kwargs["product"]
-            unsubscribed.append(product)
+            requested.append(product)
         try:
-            for product in unsubscribed:
+            for product in requested:
                 source.subscribe(product)
                 subscribed.append(product)
             products = list(subscribed)
@@ -302,9 +311,9 @@ class IbkrSubscription(object, metaclass=IbkrSubscriptionMeta):
             dividends = IbkrDividends(market.dividends.past12Months, market.dividends.next12Months)
             snapshot = IbkrStockSnapshot(instrument=Instrument.STOCK, product=product, volatility=volatility, dividends=dividends, volume=market.volume, **parameters)
         elif isinstance(security, ib_async.Option):
-            volume = {Right.CALL: market.callVolume, Right.PUT: market.putVolume}[product["right"]]
-            interest = {Right.CALL: market.callOpenInterest, Right.PUT: market.putOpenInterest}[product["right"]]
-            snapshot = IbkrOptionSnapshot(instrument=Instrument.OPTION, product=product, volume=volume, interest=interest, **parameters, **product)
+            volume = {Right.CALL: market.callVolume, Right.PUT: market.putVolume}[product.right]
+            interest = {Right.CALL: market.callOpenInterest, Right.PUT: market.putOpenInterest}[product.right]
+            snapshot = IbkrOptionSnapshot(instrument=Instrument.OPTION, product=product, volume=volume, interest=interest, **parameters)
         else: raise TypeError(type(security))
         return snapshot
 

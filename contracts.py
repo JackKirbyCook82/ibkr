@@ -21,11 +21,11 @@ __license__ = "MIT License"
 
 
 class IbkrContractPage(IbkrPage):
-    def __call__(self, *args, product, settlements, interest, **kwargs):
+    def __call__(self, *args, product, settlements, **kwargs):
         try: security = product["security"]
         except KeyError: security = self.source.security(product)
         if not bool(security.conId): security = self.source.qualify(security)
-        parameters = dict(security=security, settlements=settlements, interest=interest)
+        parameters = dict(security=security, settlements=settlements)
         contracts = self.execute(*args, **parameters, **kwargs)
         return contracts
 
