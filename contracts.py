@@ -41,7 +41,7 @@ class IbkrContractPage(IbkrPage):
             expire = Datetime.strptime(security.lastTradeDateOrContractMonth, "%Y%m%d").date()
             right = {str(right).upper()[0]: right for right in list(Right)}[security.right]
             strike = float(security.strike)
-            contract = Contract(ticker, expire, strike, right)
+            contract = Contract(ticker, expire, right, strike)
             contract["security"] = security
             yield contract
 

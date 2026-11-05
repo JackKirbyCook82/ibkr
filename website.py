@@ -319,7 +319,7 @@ class IbkrPage(WebSOCKPage):
         parameters = dict(symbol=security.symbol, exchange=chain.exchange, currency="USD", multiplier=chain.multiplier, tradingClass=chain.tradingClass)
         function = lambda settlement: ib_async.Option(**parameters, lastTradeDateOrContractMonth=settlement.expire.strftime("%Y%m%d"), strike=settlement.strike, right=settlement.right)
         securities = list(map(function, settlements))
-        securities = self.source.qualify(securities)
+        securities = self.source.qualify(securities, certify=False)
         return securities
 
     def bars(self, *args, security, stop, **kwargs):
