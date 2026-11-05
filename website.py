@@ -129,7 +129,7 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
         market = self.structures[product].market
         quote = (not np.isnan(market.bid) and not np.isnan(market.ask))
         if product.record is Symbol:
-            volatility = (not np.isnan(market.histVolatility) and not np.isnan(market.impliedVolatility) and not np.isnan(market.rtHistVolatility))
+            volatility = (not np.isnan(market.histVolatility) and not np.isnan(market.impliedVolatility))
             dividends = market.dividends is not None
             return volatility and dividends and quote
         else: return quote
@@ -154,7 +154,7 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
         try: security = self.securities[product]
         except KeyError: security = self.security(product)
         if not bool(security.conId): security = self.qualify(security)
-        if product.record is Symbol: attributes = "104,106,411,456"
+        if product.record is Symbol: attributes = "104,106,456"
         elif product.record is Contract: attributes = "100,101"
         else: raise TypeError(type(product.record))
         market = self.connection.reqMktData(security, genericTickList=attributes)
@@ -169,7 +169,14 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
         self.initialized.discard(product)
 
     def security(self, product):
-        try: return self.securities[product]
+        try:
+            security = product["security"]
+            self.securities[product] = security
+            return security
+        except KeyError: pass
+        try:
+            security = self.securities[product]
+            return security
         except KeyError: pass
         if product.record is Symbol: return ib_async.Stock(product.ticker, "SMART", "USD")
         elif product.record is Contract: return ib_async.Option(product.ticker, product.expire.strftime("%Y%m%d"), product.strike, str(product.right).upper()[0], "SMART")
@@ -222,7 +229,7 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
 
 
 @dataclass(frozen=True, slots=True)
-class IbkrVolatility: historic: float; realized: float; implied: float
+class IbkrVolatility: historic: float; implied: float
 
 @dataclass(frozen=True, slots=True)
 class IbkrDividends: historic: float; predicted: float
@@ -246,21 +253,22 @@ class IbkrOptionSnapshot(IbkrSnapshot): interest: int
 class IbkrSubscriptionMeta(type):
     def __call__(cls, source, *args, **kwargs):
         assert isinstance(source, IbkrSocket)
-        products = list()
+        subscribed = list()
+        unsubscribed = kwargs.pop("products", [])
+        if "product" in kwargs:
+            product = kwargs["product"]
+            unsubscribed.append(product)
         try:
-            for product in kwargs.get("products", []):
+            for product in unsubscribed:
                 source.subscribe(product)
-                products.append(product)
-            product = kwargs.get("product", None)
-            if product is not None:
-                source.subscribe(product)
-                products.append(product)
+                subscribed.append(product)
+            products = list(subscribed)
+            instance = super().__call__(source, *args, products=products, **kwargs)
+            return instance
         except Exception:
-            for product in products:
+            for product in subscribed:
                 source.unsubscribe(product)
             raise
-        instance = super().__call__(source, *args, products=products, **kwargs)
-        return instance
 
 
 class IbkrSubscription(object, metaclass=IbkrSubscriptionMeta):
@@ -290,7 +298,7 @@ class IbkrSubscription(object, metaclass=IbkrSubscriptionMeta):
         price = IbkrPrice(market.last, market.bid, market.ask)
         parameters = dict(datetime=market.time, price=price, size=size)
         if isinstance(security, ib_async.Stock):
-            volatility = IbkrVolatility(market.histVolatility, market.rtHistVolatility, market.impliedVolatility)
+            volatility = IbkrVolatility(market.histVolatility, market.impliedVolatility)
             dividends = IbkrDividends(market.dividends.past12Months, market.dividends.next12Months)
             snapshot = IbkrStockSnapshot(instrument=Instrument.STOCK, product=product, volatility=volatility, dividends=dividends, volume=market.volume, **parameters)
         elif isinstance(security, ib_async.Option):
