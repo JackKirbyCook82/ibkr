@@ -126,13 +126,18 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
         self.initialized.add(product)
 
     def ready(self, product):
+        sanity = self.sanity(product)
+        validity = self.validity(product)
+        return sanity and validity
+
+    def sanity(self, product):
         market = self.structures[product].market
         quote = np.isfinite(market.bid) and np.isfinite(market.ask)
         if product.record is not Symbol: return quote
         volatility = np.isfinite(market.impliedVolatility)
         return quote and volatility
 
-    def valid(self, product):
+    def validity(self, product):
         market = self.structures[product].market
         quote = 0 < market.bid <= market.ask
         if product.record is not Symbol: return quote
