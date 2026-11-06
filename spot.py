@@ -10,7 +10,7 @@ Created on Fri Oct 16 2026
 import pandas as pd
 from abc import ABC
 
-from ibkr.website import IbkrPage, IbkrDownloader
+from ibkr.website import IbkrPage, IbkrStream
 from finance.enumerations import Instrument
 
 __version__ = "1.0.0"
@@ -37,7 +37,7 @@ class IbkrSpotPage(IbkrPage, ABC):
         return spot
 
 
-class IbkrSpotDownloader(IbkrDownloader, page=IbkrSpotPage):
+class IbkrSpotDownloader(IbkrStream, page=IbkrSpotPage):
     def __call__(self, products, /, **kwargs):
         if not isinstance(products, list): products = [products]
         spot = list(self.downloader(products, **kwargs))
@@ -52,7 +52,7 @@ class IbkrSpotDownloader(IbkrDownloader, page=IbkrSpotPage):
             parameters = dict(products=products)
             bars = self.page(**parameters, **kwargs)
             if bars is None or bool(bars.empty): continue
-            results = self.results(scope=scope, size=len(bars))
+            results = self.results(scope, len(bars), self.instrument)
             self.console("Downloaded", results)
             yield bars
 

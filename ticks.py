@@ -17,7 +17,7 @@ from datetime import datetime as Datetime
 from datetime import timezone as Timezone
 from datetime import timedelta as Timedelta
 
-from ibkr.website import IbkrPage, IbkrDownloader
+from ibkr.website import IbkrPage, IbkrStream
 from finance.enumerations import Instrument, Price
 from support.custom import DateRange
 
@@ -58,7 +58,7 @@ class IbkrTicksPage(IbkrPage, ABC):
             stop = stop - Timedelta(seconds=1)
 
 
-class IbkrTicksDownloader(IbkrDownloader, page=IbkrTicksPage):
+class IbkrTicksDownloader(IbkrStream, page=IbkrTicksPage):
     def __call__(self, products, /, **kwargs):
         if not isinstance(products, list): products = [products]
         ticks = list(self.downloader(products, **kwargs))
@@ -74,7 +74,7 @@ class IbkrTicksDownloader(IbkrDownloader, page=IbkrTicksPage):
             ticks = ticks.sort_values(by="datetime", ascending=False, inplace=False)
             ticks = ticks.reset_index(drop=True, inplace=False)
             if ticks is None or bool(ticks.empty): continue
-            results = self.results(scope=scope, size=len(ticks))
+            results = self.results(scope, len(ticks), self.instrument)
             self.console("Downloaded", results)
             yield ticks
 

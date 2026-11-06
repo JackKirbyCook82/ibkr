@@ -16,7 +16,7 @@ from datetime import time as Time
 from datetime import timezone as Timezone
 from datetime import datetime as Datetime
 
-from ibkr.website import IbkrPage, IbkrDownloader
+from ibkr.website import IbkrPage, IbkrStream
 from finance.enumerations import Instrument, Price
 from support.custom import DateRange
 
@@ -54,7 +54,7 @@ class IbkrBarsPage(IbkrPage, ABC):
         yield bars
 
 
-class IbkrBarsDownloader(IbkrDownloader, page=IbkrBarsPage):
+class IbkrBarsDownloader(IbkrStream, page=IbkrBarsPage):
     def __call__(self, products, /, **kwargs):
         if not isinstance(products, list): products = [products]
         bars = list(self.downloader(products, **kwargs))
@@ -70,7 +70,7 @@ class IbkrBarsDownloader(IbkrDownloader, page=IbkrBarsPage):
             bars = bars.sort_values(by="datetime", ascending=False, inplace=False)
             bars = bars.reset_index(drop=True, inplace=False)
             if bars is None or bool(bars.empty): continue
-            results = self.results(scope=scope, size=len(bars))
+            results = self.results(scope, len(bars), self.instrument)
             self.console("Downloaded", results)
             yield bars
 

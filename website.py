@@ -20,7 +20,7 @@ from functools import singledispatchmethod
 
 from finance.querys import Symbol, Contract
 from finance.enumerations import Frequency, Price, Right, Instrument
-from finance.reporting import Results
+from finance import Scope, Results
 from finance.variables import OSI
 from webscraping.webpages import WebSOCKPage
 from webscraping.websources import WebSOCKSource
@@ -30,7 +30,7 @@ from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["IbkrSocket", "IbkrSubscription", "IbkrPage", "IbkrDownloader"]
+__all__ = ["IbkrSocket", "IbkrSubscription", "IbkrPage", "IbkrStream"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -366,18 +366,22 @@ class IbkrPage(WebSOCKPage):
     def index(self, dataframe, *args, security, **kwargs): raise TypeError(type(security))
 
     @index.register(ib_async.Stock)
-    def _(self, dataframe, *args, security, **kwargs):
-        dataframe["ticker"] = str(security.symbol).upper()
-        return dataframe
+    def _(self, dataframe, *args, securities, **kwargs):
+        pass
+
+#        dataframe["ticker"] = str(security.symbol).upper()
+#        return dataframe
 
     @index.register(ib_async.Option)
-    def _(self, dataframe, *args, security, **kwargs):
-        dataframe["ticker"] = str(security.symbol).upper()
-        dataframe["expire"] = Datetime.strptime(security.lastTradeDateOrContractMonth, "%Y%m%d").date()
-        dataframe["strike"] = float(security.strike)
-        dataframe["right"] = {str(right).upper()[0]: right for right in Right}[security.right]
-        dataframe["osi"] = dataframe[list(Contract)].apply(OSI)
-        return dataframe
+    def _(self, dataframe, *args, securities, **kwargs):
+        pass
+
+#        dataframe["ticker"] = str(security.symbol).upper()
+#        dataframe["expire"] = Datetime.strptime(security.lastTradeDateOrContractMonth, "%Y%m%d").date()
+#        dataframe["strike"] = float(security.strike)
+#        dataframe["right"] = {str(right).upper()[0]: right for right in Right}[security.right]
+#        dataframe["osi"] = dataframe[list(Contract)].apply(OSI)
+#        return dataframe
 
     @staticmethod
     def columns(dataframe, *args, **kwargs):
@@ -395,7 +399,7 @@ class IbkrPage(WebSOCKPage):
     def frequency(*args, frequency, **kwargs): return IbkrFrequencies(frequency)
 
 
-class IbkrDownloader(Results, Logging, ABC):
+class IbkrStream(Scope, Results, Logging, ABC):
     def __init_subclass__(cls, /, **kwargs):
         super().__init_subclass__(**kwargs)
         namespace = getattr(cls, "__namespace__", {})
@@ -412,10 +416,6 @@ class IbkrDownloader(Results, Logging, ABC):
         self.__instrument = self.namespace["instrument"]
         self.__price = self.namespace["price"]
         self.__limit = self.namespace["limit"]
-
-    def scope(self, products, **kwargs):
-        if self.instrument is None: raise ValueError(self.instrument)
-        return super().scope(products, instrument=self.instrument)
 
     @property
     def namespace(self): return type(self).__namespace__
