@@ -116,32 +116,28 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
     def start(self): self.connection.connect(host=self.host, port=self.port, clientId=self.client)
     def stop(self): self.connection.disconnect()
 
-#    def prepare(self, product, timeout=2):
-#        if product in self.initialized: return
-#        stop = time.monotonic() + timeout
-#        while not self.ready(product):
-#            remaining = stop - time.monotonic()
-#            if remaining <= 0: raise IbkrSocketMarketError(product)
-#            self.connection.waitOnUpdate(timeout=remaining)
-#        self.initialized.add(product)
-
     def prepare(self, product, timeout=2):
-        pass
-
-#    def ready(self, product):
-#        market = self.structures[product].market
-#        quote = (not np.isnan(market.bid) and not np.isnan(market.ask))
-#        if product.record is Symbol:
-#            volatility = (not np.isnan(market.histVolatility) and not np.isnan(market.impliedVolatility))
-#            dividends = market.dividends is not None
-#            return volatility and dividends and quote
-#        else: return quote
+        if product in self.initialized: return
+        stop = time.monotonic() + timeout
+        while not self.ready(product):
+            remaining = stop - time.monotonic()
+            if remaining <= 0: raise IbkrSocketMarketError(product)
+            self.connection.waitOnUpdate(timeout=remaining)
+        self.initialized.add(product)
 
     def ready(self, product):
-        pass
+        market = self.structures[product].market
+        quote = np.isfinite(market.bid) and np.isfinite(market.ask)
+        if product.record is not Symbol: return quote
+        volatility = np.isfinite(market.impliedVolatility)
+        return quote and volatility
 
     def valid(self, product):
-        pass
+        market = self.structures[product].market
+        quote = 0 < market.bid <= market.ask
+        if product.record is not Symbol: return quote
+        volatility = market.impliedVolatility > 0
+        return quote and volatility
 
     def subscribe(self, product):
         with self.mutex:
