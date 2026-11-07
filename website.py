@@ -20,13 +20,11 @@ from functools import singledispatchmethod
 
 from finance.querys import Symbol, Contract
 from finance.enumerations import Frequency, Price, Right, Instrument
-from finance import Scope, Results
 from finance.variables import OSI
 from webscraping.webpages import WebSOCKPage
 from webscraping.websources import WebSOCKSource
 from support.decorators import Dispatchers
 from support.meta import CollectionMeta
-from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -363,16 +361,16 @@ class IbkrPage(WebSOCKPage):
         return spot
 
     @Dispatchers.Type(locator="security")
-    def index(self, dataframe, *args, security, **kwargs): raise TypeError(type(security))
+    def identify(self, dataframe, *args, security, **kwargs): raise TypeError(type(security))
 
-    @index.register(ib_async.Stock)
+    @identify.register(ib_async.Stock)
     def _(self, dataframe, *args, securities, **kwargs):
         pass
 
 #        dataframe["ticker"] = str(security.symbol).upper()
 #        return dataframe
 
-    @index.register(ib_async.Option)
+    @identify.register(ib_async.Option)
     def _(self, dataframe, *args, securities, **kwargs):
         pass
 
@@ -384,7 +382,7 @@ class IbkrPage(WebSOCKPage):
 #        return dataframe
 
     @staticmethod
-    def columns(dataframe, *args, **kwargs):
+    def parse(dataframe, *args, **kwargs):
         columns = [column for column in list(dict(IbkrColumns).values()) if column.code in dataframe.columns]
         dataframe = dataframe[[column.code for column in columns]]
         dataframe = dataframe.rename(columns={column.code: column.name for column in columns}, inplace=False)
@@ -399,7 +397,7 @@ class IbkrPage(WebSOCKPage):
     def frequency(*args, frequency, **kwargs): return IbkrFrequencies(frequency)
 
 
-class IbkrStream(Scope, Results, Logging, ABC):
+class IbkrStream(ABC):
     def __init_subclass__(cls, /, **kwargs):
         super().__init_subclass__(**kwargs)
         namespace = getattr(cls, "__namespace__", {})

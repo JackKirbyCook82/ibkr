@@ -32,14 +32,15 @@ class IbkrSpotPage(IbkrPage, ABC):
     def execute(self, *args, **kwargs):
         spot = self.spot(*args, **kwargs)
         spot = pd.DataFrame.from_records(spot)
-        spot = self.columns(spot, *args, **kwargs)
-        spot = self.index(spot, *args, **kwargs)
+        spot = self.parse(spot, *args, **kwargs)
+        spot = self.identify(spot, *args, **kwargs)
         return spot
 
 
 class IbkrSpotDownloader(IbkrStream, page=IbkrSpotPage):
     def __call__(self, products, /, **kwargs):
         if not isinstance(products, list): products = [products]
+        if not bool(products): return None
         spot = list(self.downloader(products, **kwargs))
         if not spot: return None
         bars = pd.concat(list(spot), axis=0)
@@ -48,12 +49,9 @@ class IbkrSpotDownloader(IbkrStream, page=IbkrSpotPage):
     def downloader(self, products, /, **kwargs):
         products = [products[index:index + self.limit] for index in range(0, len(products), self.limit)]
         for products in products:
-            scope = self.scope(products)
             parameters = dict(products=products)
             bars = self.page(**parameters, **kwargs)
             if bars is None or bool(bars.empty): continue
-            results = self.results(scope, len(bars), self.instrument)
-            self.console("Downloaded", results)
             yield bars
 
 

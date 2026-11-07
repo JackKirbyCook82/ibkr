@@ -44,8 +44,8 @@ class IbkrTicksPage(IbkrPage, ABC):
         ticks = self.generator(*args, **kwargs)
         ticks = list(chain.from_iterable(ticks))
         ticks = util.df(ticks)
-        ticks = self.columns(ticks, *args, **kwargs)
-        ticks = self.index(ticks, *args, **kwargs)
+        ticks = self.parse(ticks, *args, **kwargs)
+        ticks = self.identify(ticks, *args, **kwargs)
         return ticks
 
     def generator(self, *args, history, **kwargs):
@@ -61,6 +61,7 @@ class IbkrTicksPage(IbkrPage, ABC):
 class IbkrTicksDownloader(IbkrStream, page=IbkrTicksPage):
     def __call__(self, products, /, **kwargs):
         if not isinstance(products, list): products = [products]
+        if not bool(products): return None
         ticks = list(self.downloader(products, **kwargs))
         if not ticks: return None
         ticks = pd.concat(list(ticks), axis=0)
@@ -68,14 +69,11 @@ class IbkrTicksDownloader(IbkrStream, page=IbkrTicksPage):
 
     def downloader(self, products, /, **kwargs):
         for product in products:
-            scope = self.scope([product])
             parameters = dict(product=product, price=self.price)
             ticks = self.page(**parameters, **kwargs)
             ticks = ticks.sort_values(by="datetime", ascending=False, inplace=False)
             ticks = ticks.reset_index(drop=True, inplace=False)
             if ticks is None or bool(ticks.empty): continue
-            results = self.results(scope, len(ticks), self.instrument)
-            self.console("Downloaded", results)
             yield ticks
 
 

@@ -44,8 +44,8 @@ class IbkrBarsPage(IbkrPage, ABC):
         bars = self.generator(*args, **kwargs)
         bars = list(chain.from_iterable(bars))
         bars = util.df(bars)
-        bars = self.columns(bars, *args, **kwargs)
-        bars = self.index(bars, *args, **kwargs)
+        bars = self.parse(bars, *args, **kwargs)
+        bars = self.identify(bars, *args, **kwargs)
         return bars
 
     def generator(self, *args, history, **kwargs):
@@ -57,6 +57,7 @@ class IbkrBarsPage(IbkrPage, ABC):
 class IbkrBarsDownloader(IbkrStream, page=IbkrBarsPage):
     def __call__(self, products, /, **kwargs):
         if not isinstance(products, list): products = [products]
+        if not bool(products): return None
         bars = list(self.downloader(products, **kwargs))
         if not bars: return None
         bars = pd.concat(list(bars), axis=0)
@@ -64,14 +65,11 @@ class IbkrBarsDownloader(IbkrStream, page=IbkrBarsPage):
 
     def downloader(self, products, /, **kwargs):
         for product in products:
-            scope = self.scope([product])
             parameters = dict(product=product, price=self.price)
             bars = self.page(**parameters, **kwargs)
             bars = bars.sort_values(by="datetime", ascending=False, inplace=False)
             bars = bars.reset_index(drop=True, inplace=False)
             if bars is None or bool(bars.empty): continue
-            results = self.results(scope, len(bars), self.instrument)
-            self.console("Downloaded", results)
             yield bars
 
 
