@@ -337,6 +337,7 @@ class IbkrPage(WebSOCKPage):
         parameters = dict(symbol=security.symbol, exchange=chain.exchange, currency="USD", multiplier=chain.multiplier, tradingClass=chain.tradingClass)
         function = lambda settlement: ib_async.Option(**parameters, lastTradeDateOrContractMonth=settlement.expire.strftime("%Y%m%d"), strike=settlement.strike, right=settlement.right)
         securities = list(map(function, settlements))
+        if not securities: return []
         securities = self.source.qualify(securities, certify=False)
         return securities
 
@@ -345,24 +346,30 @@ class IbkrPage(WebSOCKPage):
         duration = self.duration(*args, **kwargs)
         price = self.price(*args, **kwargs)
         parameters = dict(whatToShow=price, endDateTime=stop, durationStr=duration, barSizeSetting=frequency, useRTH=True)
-        bars = self.source.connection.reqHistoricalData(security, **parameters)
-        return bars
+        records = self.source.connection.reqHistoricalData(security, **parameters)
+        return records
 
     def ticks(self, *args, security, stop, sparse=False, **kwargs):
         price = self.price(*args, **kwargs)
         parameters = dict(whatToShow=price, startDateTime="", endDateTime=stop, numberOfTicks=1000, useRTH=True, ignoreSize=not sparse)
-        ticks = self.source.connection.reqHistoricalTicks(security, **parameters)
-        return ticks
+        records = self.source.connection.reqHistoricalTicks(security, **parameters)
+        return records
 
     def spot(self, *args, securities, **kwargs):
-        stock = lambda security: {"ticker": security.symbol}
-        option = lambda security: {"ticker": security.symbol, "expire": security.lastTradeDateOrContractMonth, "strike": security.strike, "right": security.right}
-        product = lambda security: {ib_async.Stock: stock(security), ib_async.Option: option(security)}[type(security)]
-        trade = lambda market: {"price": market.last, "size": market.lastSize}
-        quote = lambda market: {"priceBid": market.bid, "priceAsk": market.ask, "sizeBid": market.bidSize, "sizeAsk": market.askSize}
         markets = self.source.connection.reqTickers(*securities)
-        spot = [product(security) | {"time": market.time} | trade(market) | quote(market) for security, market in zip(securities, markets)]
-        return spot
+        records = list()
+        for market in markets:
+            if market.contract.secType == "STK":
+                product = {"ticker": market.contract.symbol}
+            elif market.contract.secType == "OPT":
+                product = {"ticker": market.contract.symbol, "expire": market.contract.lastTradeDateOrContractMonth, "strike": market.contract.strike, "right": market.contract.right}
+            else: raise ValueError(market.contract.secType)
+            timing = {"time": market.time}
+            trade = {"price": market.last, "size": market.lastSize}
+            quote = {"priceBid": market.bid, "priceAsk": market.ask, "sizeBid": market.bidSize, "sizeAsk": market.askSize}
+            record = product | timing | quote | trade
+            records.append(record)
+        return records
 
     @staticmethod
     def parse(dataframe, *args, **kwargs):
