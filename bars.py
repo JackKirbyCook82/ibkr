@@ -45,7 +45,6 @@ class IbkrBarsPage(IbkrPage, ABC):
         bars = list(chain.from_iterable(bars))
         bars = util.df(bars)
         bars = self.parse(bars, *args, **kwargs)
-        bars = self.identify(bars, *args, **kwargs)
         return bars
 
     def generator(self, *args, history, **kwargs):

@@ -20,10 +20,8 @@ from functools import singledispatchmethod
 
 from finance.querys import Symbol, Contract
 from finance.enumerations import Frequency, Price, Right, Instrument
-from finance.variables import OSI
 from webscraping.webpages import WebSOCKPage
 from webscraping.websources import WebSOCKSource
-from support.decorators import Dispatchers
 from support.meta import CollectionMeta
 
 __version__ = "1.0.0"
@@ -47,6 +45,10 @@ class IbkrSocketLimitError(IbkrSocketError): pass
 @dataclass(frozen=True)
 class IbkrColumn: name: str; code: str; parser: Callable
 class IbkrColumns(metaclass=CollectionMeta):
+    ticker = IbkrColumn("ticker", "ticker", str.upper)
+    expire = IbkrColumn("expire", "expire", lambda string: Datetime.strptime(string, "%Y%m%d").date())
+    strike = IbkrColumn("strike", "strike", np.float32)
+    right = IbkrColumn("right", "right", lambda string: {str(right).upper()[0]: right for right in Right}[string])
     datetime = IbkrColumn("datetime", "time", lambda string: pd.to_datetime(string, utc=True))
     size = IbkrColumn("size", "size", np.float32)
     supply = IbkrColumn("supply", "sizeAsk", np.float32)
@@ -353,33 +355,14 @@ class IbkrPage(WebSOCKPage):
         return ticks
 
     def spot(self, *args, securities, **kwargs):
-        product = lambda content: {"product": content.contract.symbol, "time": content.time}
-        trade = lambda content: {"price": content.last, "size": content.lastSize}
-        quote = lambda content: {"priceBid": content.bid, "priceAsk": content.ask, "sizeBid": content.bidSize, "sizeAsk": content.askSize}
-        data = self.source.connection.reqTickers(*securities)
-        spot = [product(content) | trade(content) | quote(content) for content in data]
+        stock = lambda security: {"ticker": security.symbol}
+        option = lambda security: {"ticker": security.symbol, "expire": security.lastTradeDateOrContractMonth, "strike": security.strike, "right": security.right}
+        product = lambda security: {ib_async.Stock: stock(security), ib_async.Option: option(security)}[type(security)]
+        trade = lambda market: {"price": market.last, "size": market.lastSize}
+        quote = lambda market: {"priceBid": market.bid, "priceAsk": market.ask, "sizeBid": market.bidSize, "sizeAsk": market.askSize}
+        markets = self.source.connection.reqTickers(*securities)
+        spot = [product(security) | {"time": market.time} | trade(market) | quote(market) for security, market in zip(securities, markets)]
         return spot
-
-    @Dispatchers.Type(locator="security")
-    def identify(self, dataframe, *args, security, **kwargs): raise TypeError(type(security))
-
-    @identify.register(ib_async.Stock)
-    def _(self, dataframe, *args, securities, **kwargs):
-        pass
-
-#        dataframe["ticker"] = str(security.symbol).upper()
-#        return dataframe
-
-    @identify.register(ib_async.Option)
-    def _(self, dataframe, *args, securities, **kwargs):
-        pass
-
-#        dataframe["ticker"] = str(security.symbol).upper()
-#        dataframe["expire"] = Datetime.strptime(security.lastTradeDateOrContractMonth, "%Y%m%d").date()
-#        dataframe["strike"] = float(security.strike)
-#        dataframe["right"] = {str(right).upper()[0]: right for right in Right}[security.right]
-#        dataframe["osi"] = dataframe[list(Contract)].apply(OSI)
-#        return dataframe
 
     @staticmethod
     def parse(dataframe, *args, **kwargs):

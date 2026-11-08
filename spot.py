@@ -25,15 +25,14 @@ class IbkrSpotPage(IbkrPage, ABC):
         securities = [product["security"] if "security" in product else self.source.security(product) for product in products]
         qualified = [security for security in securities if bool(security.conId)]
         unqualified = [security for security in securities if not bool(security.conId)]
-        securities = qualified + self.source.qualify(unqualified)
-        spot = self.execute(securities=securities)
+        if unqualified: qualified.extend(self.source.qualify(unqualified))
+        spot = self.execute(securities=qualified)
         return spot
 
     def execute(self, *args, **kwargs):
         spot = self.spot(*args, **kwargs)
         spot = pd.DataFrame.from_records(spot)
         spot = self.parse(spot, *args, **kwargs)
-        spot = self.identify(spot, *args, **kwargs)
         return spot
 
 

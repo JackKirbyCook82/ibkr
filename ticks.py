@@ -45,7 +45,6 @@ class IbkrTicksPage(IbkrPage, ABC):
         ticks = list(chain.from_iterable(ticks))
         ticks = util.df(ticks)
         ticks = self.parse(ticks, *args, **kwargs)
-        ticks = self.identify(ticks, *args, **kwargs)
         return ticks
 
     def generator(self, *args, history, **kwargs):
