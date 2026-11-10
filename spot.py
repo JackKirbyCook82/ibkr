@@ -45,6 +45,13 @@ class IbkrSpotDownloader(IbkrStream, page=IbkrSpotPage):
         bars = pd.concat(list(spot), axis=0)
         return bars
 
+#        tickers = set(bars["tickers"].unique())
+#        expires = set(bars["expires"].unique())
+#        tickers = f"{','.join(tickers)}"
+#        expires = f"{min(expires).strftime('%Y/%m/%d')}->{max(expires).strftime('%Y/%m/%d')}"
+#        quantity = f"{len(bars):.0f}"
+#        string = f"Downloaded[{tickers}, {expires}, {quantity}]"
+
     def downloader(self, products, /, **kwargs):
         products = [products[index:index + self.limit] for index in range(0, len(products), self.limit)]
         for products in products:

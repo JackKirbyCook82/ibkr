@@ -23,6 +23,7 @@ from finance.enumerations import Frequency, Price, Right, Instrument
 from webscraping.webpages import WebSOCKPage
 from webscraping.websources import WebSOCKSource
 from support.meta import CollectionMeta
+from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -387,7 +388,7 @@ class IbkrPage(WebSOCKPage):
     def frequency(*args, frequency, **kwargs): return IbkrFrequencies(frequency)
 
 
-class IbkrStream(ABC):
+class IbkrStream(Logging, ABC):
     def __init_subclass__(cls, /, **kwargs):
         super().__init_subclass__(**kwargs)
         namespace = getattr(cls, "__namespace__", {})
