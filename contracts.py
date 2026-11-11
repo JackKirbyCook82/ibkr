@@ -56,10 +56,6 @@ class IbkrContractDownloader(IbkrStream, page=IbkrContractPage):
         contracts.sort(key=lambda contract: (contract.ticker, contract.expire))
         return contracts
 
-#        tickers = set([contract.ticker for contract in contracts])
-#        expires = set(contract.expire for contract in contracts)
-#        tickers = f"{','.join(tickers)}"
-#        expires = f"{min(expires).strftime('%Y/%m/%d')}->{max(expires).strftime('%Y/%m/%d')}"
 #        quantity = f"{len(contracts):.0f}"
 #        string = f"Downloaded[{tickers}, {expires}, {quantity}]"
 

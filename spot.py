@@ -12,6 +12,7 @@ from abc import ABC
 
 from ibkr.website import IbkrPage, IbkrStream
 from finance.enumerations import Instrument
+from finance.variables import Variables
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -45,10 +46,6 @@ class IbkrSpotDownloader(IbkrStream, page=IbkrSpotPage):
         bars = pd.concat(list(spot), axis=0)
         return bars
 
-#        tickers = set(bars["tickers"].unique())
-#        expires = set(bars["expires"].unique())
-#        tickers = f"{','.join(tickers)}"
-#        expires = f"{min(expires).strftime('%Y/%m/%d')}->{max(expires).strftime('%Y/%m/%d')}"
 #        quantity = f"{len(bars):.0f}"
 #        string = f"Downloaded[{tickers}, {expires}, {quantity}]"
 
