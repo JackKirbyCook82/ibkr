@@ -9,6 +9,7 @@ Created on Sun Oct 4 2026
 
 import pandas as pd
 from abc import ABC
+
 from ib_async import util
 from itertools import chain
 from zoneinfo import ZoneInfo
@@ -17,7 +18,9 @@ from datetime import timezone as Timezone
 from datetime import datetime as Datetime
 
 from ibkr.website import IbkrPage, IbkrStream
-from finance.enumerations import Instrument, Price
+from finance.console import LoggingDecorator, LoggingSizing
+from finance.enumerations import Enumerations
+from finance.variables import Categories
 from support.custom import DateRange
 
 __version__ = "1.0.0"
@@ -54,6 +57,7 @@ class IbkrBarsPage(IbkrPage, ABC):
 
 
 class IbkrBarsDownloader(IbkrStream, page=IbkrBarsPage):
+    @LoggingDecorator(categories=[Categories.Ticker, Categories.Expire], sizing=LoggingSizing.OUTLET, title="Downloaded")
     def __call__(self, products, /, **kwargs):
         if not isinstance(products, list): products = [products]
         if not bool(products): return None
@@ -72,13 +76,13 @@ class IbkrBarsDownloader(IbkrStream, page=IbkrBarsPage):
             yield bars
 
 
-class IbkrStockBarsDownloader(IbkrBarsDownloader, instrument=Instrument.STOCK): pass
-class IbkrOptionBarsDownloader(IbkrBarsDownloader, instrument=Instrument.OPTION): pass
+class IbkrStockBarsDownloader(IbkrBarsDownloader, instrument=Enumerations.Instrument.STOCK): pass
+class IbkrOptionBarsDownloader(IbkrBarsDownloader, instrument=Enumerations.Instrument.OPTION): pass
 
-class IbkrTradeStockBarsDownloader(IbkrStockBarsDownloader, price=Price.TRADE): pass
-class IbkrQuoteStockBarsDownloader(IbkrStockBarsDownloader, price=Price.QUOTE): pass
-class IbkrTradeOptionBarsDownloader(IbkrOptionBarsDownloader, price=Price.TRADE): pass
-class IbkrQuoteOptionBarsDownloader(IbkrOptionBarsDownloader, price=Price.QUOTE): pass
+class IbkrTradeStockBarsDownloader(IbkrStockBarsDownloader, price=Enumerations.Price.TRADE): pass
+class IbkrQuoteStockBarsDownloader(IbkrStockBarsDownloader, price=Enumerations.Price.QUOTE): pass
+class IbkrTradeOptionBarsDownloader(IbkrOptionBarsDownloader, price=Enumerations.Price.TRADE): pass
+class IbkrQuoteOptionBarsDownloader(IbkrOptionBarsDownloader, price=Enumerations.Price.QUOTE): pass
 
 
 

@@ -11,8 +11,9 @@ import pandas as pd
 from abc import ABC
 
 from ibkr.website import IbkrPage, IbkrStream
-from finance.enumerations import Instrument
-from finance.variables import Variables
+from finance.console import LoggingDecorator, LoggingSizing
+from finance.enumerations import Enumerations
+from finance.variables import Categories
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -38,6 +39,7 @@ class IbkrSpotPage(IbkrPage, ABC):
 
 
 class IbkrSpotDownloader(IbkrStream, page=IbkrSpotPage):
+    @LoggingDecorator(categories=[Categories.Ticker, Categories.Expire], sizing=LoggingSizing.OUTLET, title="Downloaded")
     def __call__(self, products, /, **kwargs):
         if not isinstance(products, list): products = [products]
         if not bool(products): return None
@@ -45,9 +47,6 @@ class IbkrSpotDownloader(IbkrStream, page=IbkrSpotPage):
         if not spot: return None
         bars = pd.concat(list(spot), axis=0)
         return bars
-
-#        quantity = f"{len(bars):.0f}"
-#        string = f"Downloaded[{tickers}, {expires}, {quantity}]"
 
     def downloader(self, products, /, **kwargs):
         products = [products[index:index + self.limit] for index in range(0, len(products), self.limit)]
@@ -58,8 +57,8 @@ class IbkrSpotDownloader(IbkrStream, page=IbkrSpotPage):
             yield bars
 
 
-class IbkrStockSpotDownloader(IbkrSpotDownloader, instrument=Instrument.STOCK): pass
-class IbkrOptionSpotDownloader(IbkrSpotDownloader, instrument=Instrument.OPTION): pass
+class IbkrStockSpotDownloader(IbkrSpotDownloader, instrument=Enumerations.Instrument.STOCK): pass
+class IbkrOptionSpotDownloader(IbkrSpotDownloader, instrument=Enumerations.Instrument.OPTION): pass
 
 
 

@@ -10,8 +10,10 @@ Created on Sun Oct 4 2026
 from datetime import datetime as Datetime
 
 from ibkr.website import IbkrPage, IbkrStream
-from finance.enumerations import Right
-from finance.querys import Contract
+from finance.console import LoggingDecorator, LoggingSizing
+from finance.enumerations import Enumerations
+from finance.variables import Categories
+from finance.querys import Querys
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -39,14 +41,15 @@ class IbkrContractPage(IbkrPage):
         for security in securities:
             ticker = str(security.symbol).upper()
             expire = Datetime.strptime(security.lastTradeDateOrContractMonth, "%Y%m%d").date()
-            right = {str(right).upper()[0]: right for right in list(Right)}[security.right]
+            right = {str(right).upper()[0]: right for right in list(Enumerations.Right)}[security.right]
             strike = float(security.strike)
-            contract = Contract(ticker, expire, right, strike)
+            contract = Querys.Contract(ticker, expire, right, strike)
             contract["security"] = security
             yield contract
 
 
 class IbkrContractDownloader(IbkrStream, page=IbkrContractPage):
+    @LoggingDecorator(categories=[Categories.Ticker, Categories.Expire], sizing=LoggingSizing.OUTLET, title="Downloaded")
     def __call__(self, products, /, **kwargs):
         if not isinstance(products, list): products = [products]
         if not bool(products): return None
@@ -55,9 +58,6 @@ class IbkrContractDownloader(IbkrStream, page=IbkrContractPage):
         if not contracts: return None
         contracts.sort(key=lambda contract: (contract.ticker, contract.expire))
         return contracts
-
-#        quantity = f"{len(contracts):.0f}"
-#        string = f"Downloaded[{tickers}, {expires}, {quantity}]"
 
     def downloader(self, products, /, **kwargs):
         for product in products:

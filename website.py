@@ -18,12 +18,11 @@ from dataclasses import dataclass
 from datetime import datetime as Datetime
 from functools import singledispatchmethod
 
-from finance.querys import Symbol, Contract
-from finance.enumerations import Frequency, Price, Right, Instrument
+from finance.enumerations import Enumerations
+from finance.querys import Querys
 from webscraping.webpages import WebSOCKPage
 from webscraping.websources import WebSOCKSource
 from support.meta import CollectionMeta
-from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -49,7 +48,7 @@ class IbkrColumns(metaclass=CollectionMeta):
     ticker = IbkrColumn("ticker", "ticker", str.upper)
     expire = IbkrColumn("expire", "expire", lambda string: Datetime.strptime(string, "%Y%m%d").date())
     strike = IbkrColumn("strike", "strike", np.float32)
-    right = IbkrColumn("right", "right", lambda string: {str(right).upper()[0]: right for right in Right}[string])
+    right = IbkrColumn("right", "right", lambda string: {str(right).upper()[0]: right for right in Enumerations.Right}[string])
     datetime = IbkrColumn("datetime", "time", lambda string: pd.to_datetime(string, utc=True))
     size = IbkrColumn("size", "size", np.float32)
     supply = IbkrColumn("supply", "sizeAsk", np.float32)
@@ -64,13 +63,13 @@ class IbkrColumns(metaclass=CollectionMeta):
 
 
 @dataclass(frozen=True)
-class IbkrFrequency: by: Frequency; code: str; span: list[int]
+class IbkrFrequency: by: Enumerations.Frequency; code: str; span: list[int]
 class IbkrFrequencies(metaclass=CollectionMeta):
-    minutes = IbkrFrequency(Frequency.MINUTELY, "min", [1, 2, 3, 5, 10, 15, 20, 30])
-    hours = IbkrFrequency(Frequency.HOURLY, "hour", [1, 2, 3, 4, 8])
-    months = IbkrFrequency(Frequency.MONTHLY, "month", [1])
-    weeks = IbkrFrequency(Frequency.WEEKLY, "week", [1])
-    days = IbkrFrequency(Frequency.DAILY, "day", [1])
+    minutes = IbkrFrequency(Enumerations.Frequency.MINUTELY, "min", [1, 2, 3, 5, 10, 15, 20, 30])
+    hours = IbkrFrequency(Enumerations.Frequency.HOURLY, "hour", [1, 2, 3, 4, 8])
+    months = IbkrFrequency(Enumerations.Frequency.MONTHLY, "month", [1])
+    weeks = IbkrFrequency(Enumerations.Frequency.WEEKLY, "week", [1])
+    days = IbkrFrequency(Enumerations.Frequency.DAILY, "day", [1])
 
     def __new__(cls, frequency):
         by, span = frequency.by, frequency.span
@@ -134,14 +133,14 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
     def sanity(self, product):
         market = self.structures[product].market
         quote = np.isfinite(market.bid) and np.isfinite(market.ask)
-        if product.record is not Symbol: return quote
+        if product.record is not Querys.Symbol: return quote
         volatility = np.isfinite(market.impliedVolatility)
         return quote and volatility
 
     def validity(self, product):
         market = self.structures[product].market
         quote = 0 < market.bid <= market.ask
-        if product.record is not Symbol: return quote
+        if product.record is not Querys.Symbol: return quote
         volatility = market.impliedVolatility > 0
         return quote and volatility
 
@@ -165,8 +164,8 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
         try: security = self.securities[product]
         except KeyError: security = self.security(product)
         if not bool(security.conId): security = self.qualify(security)
-        if product.record is Symbol: attributes = "104,106,456"
-        elif product.record is Contract: attributes = "100,101"
+        if product.record is Querys.Symbol: attributes = "104,106,456"
+        elif product.record is Querys.Contract: attributes = "100,101"
         else: raise TypeError(type(product.record))
         market = self.connection.reqMktData(security, genericTickList=attributes)
         self.securities[product] = security
@@ -189,8 +188,8 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
             security = self.securities[product]
             return security
         except KeyError: pass
-        if product.record is Symbol: return ib_async.Stock(product.ticker, "SMART", "USD")
-        elif product.record is Contract: return ib_async.Option(product.ticker, product.expire.strftime("%Y%m%d"), product.strike, str(product.right).upper()[0], "SMART")
+        if product.record is Querys.Symbol: return ib_async.Stock(product.ticker, "SMART", "USD")
+        elif product.record is Querys.Contract: return ib_async.Option(product.ticker, product.expire.strftime("%Y%m%d"), product.strike, str(product.right).upper()[0], "SMART")
         else: raise TypeError(type(product.record))
 
     @singledispatchmethod
@@ -252,7 +251,7 @@ class IbkrPrice: trade: float; bid: float; ask: float
 class IbkrSize: size: int; demand: int; supply: int
 
 @dataclass(frozen=True, slots=True)
-class IbkrSnapshot: datetime: Datetime; instrument: Instrument; product: object; price: IbkrPrice; size: IbkrSize; volume: int
+class IbkrSnapshot: datetime: Datetime; instrument: Enumerations.Instrument; product: object; price: IbkrPrice; size: IbkrSize; volume: int
 
 @dataclass(frozen=True, slots=True)
 class IbkrStockSnapshot(IbkrSnapshot): volatility: IbkrVolatility; dividends: IbkrDividends
@@ -311,11 +310,11 @@ class IbkrSubscription(object, metaclass=IbkrSubscriptionMeta):
         if isinstance(security, ib_async.Stock):
             volatility = IbkrVolatility(market.histVolatility, market.impliedVolatility)
             dividends = IbkrDividends(market.dividends.past12Months, market.dividends.next12Months)
-            snapshot = IbkrStockSnapshot(instrument=Instrument.STOCK, product=product, volatility=volatility, dividends=dividends, volume=market.volume, **parameters)
+            snapshot = IbkrStockSnapshot(instrument=Enumerations.Instrument.STOCK, product=product, volatility=volatility, dividends=dividends, volume=market.volume, **parameters)
         elif isinstance(security, ib_async.Option):
-            volume = {Right.CALL: market.callVolume, Right.PUT: market.putVolume}[product.right]
-            interest = {Right.CALL: market.callOpenInterest, Right.PUT: market.putOpenInterest}[product.right]
-            snapshot = IbkrOptionSnapshot(instrument=Instrument.OPTION, product=product, volume=volume, interest=interest, **parameters)
+            volume = {Enumerations.Right.CALL: market.callVolume, Enumerations.Right.PUT: market.putVolume}[product.right]
+            interest = {Enumerations.Right.CALL: market.callOpenInterest, Enumerations.Right.PUT: market.putOpenInterest}[product.right]
+            snapshot = IbkrOptionSnapshot(instrument=Enumerations.Instrument.OPTION, product=product, volume=volume, interest=interest, **parameters)
         else: raise TypeError(type(security))
         return snapshot
 
@@ -334,7 +333,7 @@ class IbkrPage(WebSOCKPage):
         strikes = list(map(float, chain.strikes))
         settlements = [SimpleNamespace(expire=expire, strike=strike) for expire in expires for strike in strikes if (expire, strike) in settlements]
         settlements.sort(key=lambda settlement: (settlement.expire, settlement.strike))
-        settlements = [SimpleNamespace(expire=settlement.expire, strike=settlement.strike, right=str(right).upper()[0]) for right in list(Right) for settlement in settlements]
+        settlements = [SimpleNamespace(expire=settlement.expire, strike=settlement.strike, right=str(right).upper()[0]) for right in list(Enumerations.Right) for settlement in settlements]
         parameters = dict(symbol=security.symbol, exchange=chain.exchange, currency="USD", multiplier=chain.multiplier, tradingClass=chain.tradingClass)
         function = lambda settlement: ib_async.Option(**parameters, lastTradeDateOrContractMonth=settlement.expire.strftime("%Y%m%d"), strike=settlement.strike, right=settlement.right)
         securities = list(map(function, settlements))
@@ -381,14 +380,14 @@ class IbkrPage(WebSOCKPage):
         return dataframe
 
     @staticmethod
-    def price(*args, price, **kwargs): return {Price.TRADE: "TRADES", Price.MID: "MIDPOINT", Price.BID: "BID", Price.ASK: "ASK", Price.QUOTE: "BID_ASK"}[price]
+    def price(*args, price, **kwargs): return {Enumerations.Price.TRADE: "TRADES", Enumerations.Price.MID: "MIDPOINT", Enumerations.Price.BID: "BID", Enumerations.Price.ASK: "ASK", Enumerations.Price.QUOTE: "BID_ASK"}[price]
     @staticmethod
     def duration(*args, duration, **kwargs): return f"{int(duration.total_seconds())} S"
     @staticmethod
     def frequency(*args, frequency, **kwargs): return IbkrFrequencies(frequency)
 
 
-class IbkrStream(Logging, ABC):
+class IbkrStream(ABC):
     def __init_subclass__(cls, /, **kwargs):
         super().__init_subclass__(**kwargs)
         namespace = getattr(cls, "__namespace__", {})

@@ -18,7 +18,9 @@ from datetime import timezone as Timezone
 from datetime import timedelta as Timedelta
 
 from ibkr.website import IbkrPage, IbkrStream
-from finance.enumerations import Instrument, Price
+from finance.console import LoggingDecorator, LoggingSizing
+from finance.enumerations import Enumerations
+from finance.variables import Categories
 from support.custom import DateRange
 
 __version__ = "1.0.0"
@@ -58,6 +60,7 @@ class IbkrTicksPage(IbkrPage, ABC):
 
 
 class IbkrTicksDownloader(IbkrStream, page=IbkrTicksPage):
+    @LoggingDecorator(categories=[Categories.Ticker, Categories.Expire], sizing=LoggingSizing.OUTLET, title="Downloaded")
     def __call__(self, products, /, **kwargs):
         if not isinstance(products, list): products = [products]
         if not bool(products): return None
@@ -76,13 +79,13 @@ class IbkrTicksDownloader(IbkrStream, page=IbkrTicksPage):
             yield ticks
 
 
-class IbkrStockTicksDownloader(IbkrTicksDownloader, instrument=Instrument.STOCK): pass
-class IbkrOptionTicksDownloader(IbkrTicksDownloader, instrument=Instrument.OPTION): pass
+class IbkrStockTicksDownloader(IbkrTicksDownloader, instrument=Enumerations.Instrument.STOCK): pass
+class IbkrOptionTicksDownloader(IbkrTicksDownloader, instrument=Enumerations.Instrument.OPTION): pass
 
-class IbkrTradeStockTicksDownloader(IbkrStockTicksDownloader, price=Price.TRADE): pass
-class IbkrQuoteStockTicksDownloader(IbkrStockTicksDownloader, price=Price.QUOTE): pass
-class IbkrTradeOptionTicksDownloader(IbkrOptionTicksDownloader, price=Price.TRADE): pass
-class IbkrQuoteOptionTicksDownloader(IbkrOptionTicksDownloader, price=Price.QUOTE): pass
+class IbkrTradeStockTicksDownloader(IbkrStockTicksDownloader, price=Enumerations.Price.TRADE): pass
+class IbkrQuoteStockTicksDownloader(IbkrStockTicksDownloader, price=Enumerations.Price.QUOTE): pass
+class IbkrTradeOptionTicksDownloader(IbkrOptionTicksDownloader, price=Enumerations.Price.TRADE): pass
+class IbkrQuoteOptionTicksDownloader(IbkrOptionTicksDownloader, price=Enumerations.Price.QUOTE): pass
 
 
 
