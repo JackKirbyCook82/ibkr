@@ -19,6 +19,7 @@ from datetime import datetime as Datetime
 from functools import singledispatchmethod
 
 from finance.enumerations import Enumerations
+from finance.console import LoggingMixin
 from finance.querys import Querys
 from webscraping.webpages import WebSOCKPage
 from webscraping.websources import WebSOCKSource
@@ -387,7 +388,7 @@ class IbkrPage(WebSOCKPage):
     def frequency(*args, frequency, **kwargs): return IbkrFrequencies(frequency)
 
 
-class IbkrStream(ABC):
+class IbkrStream(LoggingMixin, ABC):
     def __init_subclass__(cls, /, **kwargs):
         super().__init_subclass__(**kwargs)
         namespace = getattr(cls, "__namespace__", {})

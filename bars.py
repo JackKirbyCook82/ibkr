@@ -20,7 +20,7 @@ from datetime import datetime as Datetime
 from ibkr.website import IbkrPage, IbkrStream
 from finance.console import LoggingDecorator, LoggingSizing
 from finance.enumerations import Enumerations
-from finance.variables import Categories
+from finance.variables import Collections
 from support.custom import DateRange
 
 __version__ = "1.0.0"
@@ -57,7 +57,7 @@ class IbkrBarsPage(IbkrPage, ABC):
 
 
 class IbkrBarsDownloader(IbkrStream, page=IbkrBarsPage):
-    @LoggingDecorator(categories=[Categories.Ticker, Categories.Expire], sizing=LoggingSizing.OUTLET, title="Downloaded")
+    @LoggingDecorator(Collections.Tickers, Collections.Expires, sizing=LoggingSizing.OUTLET, title="Downloaded")
     def __call__(self, products, /, **kwargs):
         if not isinstance(products, list): products = [products]
         if not bool(products): return None
