@@ -60,7 +60,7 @@ class IbkrTicksPage(IbkrPage, ABC):
 
 
 class IbkrTicksDownloader(IbkrStream, page=IbkrTicksPage):
-    @LoggingDecorator(Collections.Tickers, Collections.Expires, sizing=LoggingSizing.OUTLET, title="Downloaded")
+    @LoggingDecorator(Collections.Ticker, Collections.Expire, sizing=LoggingSizing.OUTLET, title="Downloaded")
     def __call__(self, products, /, **kwargs):
         if not isinstance(products, list): products = [products]
         if not bool(products): return None
