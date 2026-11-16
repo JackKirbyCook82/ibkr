@@ -11,8 +11,8 @@ from datetime import datetime as Datetime
 
 from ibkr.website import IbkrPage, IbkrStream
 from finance.console import LoggingDecorator, LoggingSizing
+from finance.variables import Collections, Variables
 from finance.enumerations import Enumerations
-from finance.variables import Collections
 from finance.querys import Querys
 
 __version__ = "1.0.0"
@@ -49,7 +49,7 @@ class IbkrContractPage(IbkrPage):
 
 
 class IbkrContractDownloader(IbkrStream, page=IbkrContractPage):
-    @LoggingDecorator(Collections.Ticker, Collections.Expire, sizing=LoggingSizing.OUTLET, title="Downloaded")
+    @LoggingDecorator(Collections[Variables.Ticker], Collections[Variables.Expire], sizing=LoggingSizing.OUTLET, title="Downloaded")
     def __call__(self, products, /, **kwargs):
         if not isinstance(products, list): products = [products]
         if not bool(products): return None
