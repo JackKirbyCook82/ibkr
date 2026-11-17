@@ -21,6 +21,7 @@ from ibkr.website import IbkrPage, IbkrStream
 from finance.console import LoggingDecorators, LoggingSizing
 from finance.variables import Collection, Variables
 from finance.enumerations import Enumerations
+from support.pipeline import Pipelines
 from support.custom import DateRange
 
 __version__ = "1.0.0"
@@ -57,6 +58,7 @@ class IbkrBarsPage(IbkrPage, ABC):
 
 
 class IbkrBarsDownloader(IbkrStream, page=IbkrBarsPage):
+    @Pipelines.Function()
     @LoggingDecorators.Function(Collection[Variables.Ticker], Collection[Variables.Expire], sizing=LoggingSizing.OUTLET, title="Downloaded")
     def __call__(self, products, /, **kwargs):
         if not isinstance(products, list): products = [products]

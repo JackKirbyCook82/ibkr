@@ -22,9 +22,8 @@ from finance.enumerations import Enumerations
 from finance.querys import Querys
 from webscraping.webpages import WebSOCKPage
 from webscraping.websources import WebSOCKSource
-from support.meta import CollectionMeta, NamespaceMeta
-from support.pipeline import Pipeline
-from support.mixins import Logging
+from support.meta import CollectionMeta
+from support.mixins import LoggingMixin
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -389,7 +388,7 @@ class IbkrPage(WebSOCKPage):
     def frequency(*args, frequency, **kwargs): return IbkrFrequencies(frequency)
 
 
-class IbkrStream(Pipeline, Logging, ABC, namespace={"instrument": None, "price": None, "page": None, "limit": 80}):
+class IbkrStream(LoggingMixin, ABC, namespace={"instrument": None, "price": None, "page": None, "limit": 80}):
     def __init__(self, *args, instrument, price, limit, page, **kwargs):
         super().__init__(*args, **kwargs)
         self.__page = page(*args, **kwargs)
@@ -397,8 +396,6 @@ class IbkrStream(Pipeline, Logging, ABC, namespace={"instrument": None, "price":
         self.__price = price
         self.__limit = limit
 
-    @property
-    def namespace(self): return type(self).__namespace__
     @property
     def instrument(self): return self.__instrument
     @property
