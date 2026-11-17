@@ -18,7 +18,7 @@ from datetime import timezone as Timezone
 from datetime import timedelta as Timedelta
 
 from ibkr.website import IbkrPage, IbkrStream
-from finance.console import LoggingDecorator, LoggingSizing
+from finance.console import LoggingDecorators, LoggingSizing
 from finance.variables import Collection, Variables
 from finance.enumerations import Enumerations
 from support.custom import DateRange
@@ -60,7 +60,7 @@ class IbkrTicksPage(IbkrPage, ABC):
 
 
 class IbkrTicksDownloader(IbkrStream, page=IbkrTicksPage):
-    @LoggingDecorator(Collection[Variables.Ticker], Collection[Variables.Expire], sizing=LoggingSizing.OUTLET, title="Downloaded")
+    @LoggingDecorators.Function(Collection[Variables.Ticker], Collection[Variables.Expire], sizing=LoggingSizing.OUTLET, title="Downloaded")
     def __call__(self, products, /, **kwargs):
         if not isinstance(products, list): products = [products]
         if not bool(products): return None
