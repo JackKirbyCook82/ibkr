@@ -19,11 +19,12 @@ from datetime import datetime as Datetime
 from functools import singledispatchmethod
 
 from finance.enumerations import Enumerations
-from finance.console import LoggingMixin
 from finance.querys import Querys
 from webscraping.webpages import WebSOCKPage
 from webscraping.websources import WebSOCKSource
-from support.meta import CollectionMeta
+from support.meta import CollectionMeta, NamespaceMeta
+from support.pipeline import Pipeline
+from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -388,23 +389,13 @@ class IbkrPage(WebSOCKPage):
     def frequency(*args, frequency, **kwargs): return IbkrFrequencies(frequency)
 
 
-class IbkrStream(LoggingMixin, ABC):
-    def __init_subclass__(cls, /, **kwargs):
-        super().__init_subclass__(**kwargs)
-        namespace = getattr(cls, "__namespace__", {})
-        instrument = kwargs.get("instrument", namespace.get("instrument", None))
-        price = kwargs.get("price", namespace.get("price", None))
-        limit = kwargs.get("limit", namespace.get("limit", 80))
-        page = kwargs.get("page", namespace.get("page", None))
-        namespace = dict(instrument=instrument, limit=limit, price=price, page=page)
-        cls.__namespace__ = namespace
-
-    def __init__(self, *args, **kwargs):
+class IbkrStream(Pipeline, Logging, ABC, namespace={"instrument": None, "price": None, "page": None, "limit": 80}):
+    def __init__(self, *args, instrument, price, limit, page, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__page = self.namespace["page"](*args, **kwargs)
-        self.__instrument = self.namespace["instrument"]
-        self.__price = self.namespace["price"]
-        self.__limit = self.namespace["limit"]
+        self.__page = page(*args, **kwargs)
+        self.__instrument = instrument
+        self.__price = price
+        self.__limit = limit
 
     @property
     def namespace(self): return type(self).__namespace__
