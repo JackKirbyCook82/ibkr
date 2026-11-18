@@ -47,7 +47,7 @@ class IbkrSpotDownloader(IbkrStream, page=IbkrSpotPage):
         if not bool(products): return None
         spot = list(self.downloader(products, **kwargs))
         if not spot: return None
-        bars = pd.concat(list(spot), axis=0)
+        bars = pd.concat(list(spot), axis=0, ignore_index=True)
         return bars
 
     def downloader(self, products, /, **kwargs):
