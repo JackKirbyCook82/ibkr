@@ -11,17 +11,18 @@ import time
 import ib_async
 import numpy as np
 import pandas as pd
-from typing import Callable
 from abc import ABC, ABCMeta
 from types import SimpleNamespace
-from dataclasses import dataclass
+from datetime import date as Date
 from datetime import datetime as Datetime
+from dataclasses import dataclass, asdict
 from functools import singledispatchmethod
 
 from finance.enumerations import Enumerations
 from finance.querys import Querys
 from webscraping.webpages import WebSOCKPage
 from webscraping.websources import WebSOCKSource
+from support.dispatchers import ValueDispatcher, TypeDispatcher
 from support.meta import CollectionMeta, NamespaceMeta
 from support.mixins import LoggingMixin
 
@@ -43,24 +44,24 @@ class IbkrSocketIdentityError(IbkrSocketError): pass
 class IbkrSocketLimitError(IbkrSocketError): pass
 
 
-@dataclass(frozen=True)
-class IbkrColumn: name: str; code: str; parser: Callable
-class IbkrColumns(metaclass=CollectionMeta):
-    ticker = IbkrColumn("ticker", "ticker", str.upper)
-    expire = IbkrColumn("expire", "expire", lambda string: Datetime.strptime(string, "%Y%m%d").date())
-    strike = IbkrColumn("strike", "strike", np.float32)
-    right = IbkrColumn("right", "right", lambda string: {str(right).upper()[0]: right for right in Enumerations.Right}[string])
-    datetime = IbkrColumn("datetime", "time", lambda string: pd.to_datetime(string, utc=True))
-    size = IbkrColumn("size", "size", np.float32)
-    supply = IbkrColumn("supply", "sizeAsk", np.float32)
-    demand = IbkrColumn("demand", "sizeBid", np.float32)
-    trade = IbkrColumn("trade", "price", np.float32)
-    bid = IbkrColumn("bid", "priceBid", np.float32)
-    ask = IbkrColumn("ask", "priceAsk", np.float32)
-    open = IbkrColumn("open", "priceOpen", np.float32)
-    close = IbkrColumn("close", "priceClose", np.float32)
-    high = IbkrColumn("high", "priceHigh", np.float32)
-    low = IbkrColumn("low", "priceLow", np.float32)
+# @dataclass(frozen=True)
+# class IbkrColumn: name: str; code: str; parser: Callable
+# class IbkrColumns(metaclass=CollectionMeta):
+#     ticker = IbkrColumn("ticker", "ticker", str.upper)
+#     expire = IbkrColumn("expire", "expire", lambda string: Datetime.strptime(string, "%Y%m%d").date())
+#     strike = IbkrColumn("strike", "strike", np.float32)
+#     right = IbkrColumn("right", "right", lambda string: {str(right).upper()[0]: right for right in Enumerations.Right}[string])
+#     datetime = IbkrColumn("datetime", "time", lambda string: pd.to_datetime(string, utc=True))
+#     size = IbkrColumn("size", "size", np.float32)
+#     supply = IbkrColumn("supply", "sizeAsk", np.float32)
+#     demand = IbkrColumn("demand", "sizeBid", np.float32)
+#     trade = IbkrColumn("trade", "price", np.float32)
+#     bid = IbkrColumn("bid", "priceBid", np.float32)
+#     ask = IbkrColumn("ask", "priceAsk", np.float32)
+#     open = IbkrColumn("open", "priceOpen", np.float32)
+#     close = IbkrColumn("close", "priceClose", np.float32)
+#     high = IbkrColumn("high", "priceHigh", np.float32)
+#     low = IbkrColumn("low", "priceLow", np.float32)
 
 
 @dataclass(frozen=True)
@@ -240,6 +241,12 @@ class IbkrSocket(WebSOCKSource, metaclass=IbkrSocketMeta):
 
 
 @dataclass(frozen=True, slots=True)
+class IbkrStock: ticker: str
+
+@dataclass(frozen=True, slots=True)
+class IbkrOption: ticker: str; expire: Date; right: Enumerations.Right; strike: float
+
+@dataclass(frozen=True, slots=True)
 class IbkrVolatility: historic: float; implied: float
 
 @dataclass(frozen=True, slots=True)
@@ -252,13 +259,58 @@ class IbkrPrice: trade: float; bid: float; ask: float
 class IbkrSize: size: int; demand: int; supply: int
 
 @dataclass(frozen=True, slots=True)
-class IbkrSnapshot: datetime: Datetime; instrument: Enumerations.Instrument; product: object; price: IbkrPrice; size: IbkrSize; volume: int
+class IbkrSnapshot: datetime: Datetime; instrument: Enumerations.Instrument; price: IbkrPrice; size: IbkrSize
 
 @dataclass(frozen=True, slots=True)
-class IbkrStockSnapshot(IbkrSnapshot): volatility: IbkrVolatility; dividends: IbkrDividends
+class IbkrStockSnapshot(IbkrSnapshot): product: IbkrStock; volatility: IbkrVolatility; dividends: IbkrDividends
 
 @dataclass(frozen=True, slots=True)
-class IbkrOptionSnapshot(IbkrSnapshot): interest: int
+class IbkrOptionSnapshot(IbkrSnapshot): product: IbkrOption; underlying: IbkrStock
+
+
+class IbkrRecord(dict):
+    def __init__(self, snapshot):
+        assert isinstance(snapshot, IbkrSnapshot)
+        record = self.record(snapshot)
+        super().__init__(record)
+
+    @TypeDispatcher(locator=0)
+    def record(self, snapshot): raise TypeError(type(snapshot))
+
+    @record.register(IbkrStockSnapshot)
+    def _(self, snapshot):
+        underlying = (snapshot.price.bid + snapshot.price.ask) / 2
+        dividends = np.log1p(snapshot.dividends.predicted / underlying)
+        volatility = snapshot.volatility.implied
+        parameters = {"datetime": snapshot.datetime, "instrument": snapshot.instrument, "volatility": volatility, "dividends": dividends}
+        product = asdict(snapshot.product)
+        price = asdict(snapshot.price)
+        size = asdict(snapshot.size)
+        return product | price | size | parameters
+
+    @record.register(IbkrOptionSnapshot)
+    def _(self, snapshot):
+        underlying = (snapshot.underlying.price.bid + snapshot.underlying.price.ask) / 2
+        dividends = np.log1p(snapshot.underlying.dividends.predicted / underlying)
+        volatility = snapshot.volatility.implied
+        parameters = {"datetime": snapshot.datetime, "instrument": snapshot.instrument, "volatility": volatility, "dividends": dividends, "underlying": underlying}
+        product = asdict(snapshot.product)
+        price = asdict(snapshot.price)
+        size = asdict(snapshot.size)
+        return product | price | size | parameters
+
+
+class IkbrRecords(list):
+    def __init__(self, snapshots):
+        assert isinstance(snapshots, list)
+        assert all([isinstance(snapshot, IbkrSnapshot) for snapshot in snapshots])
+        records = [IbkrRecord(snapshot) for snapshot in snapshots]
+        super().__init__(records)
+
+    @property
+    def dataframe(self):
+        dataframe = pd.DataFrame.from_records(self)
+        return dataframe
 
 
 class IbkrSubscriptionMeta(type):
@@ -299,25 +351,42 @@ class IbkrSubscription(object, metaclass=IbkrSubscriptionMeta):
             yield self.snapshot(product)
 
     def __getitem__(self, product):
-        return self.snapshot(product)
-
-    def snapshot(self, product):
         self.source.prepare(product)
         security = self.source.structures[product].security
         market = self.source.structures[product].market
-        size = IbkrSize(market.lastSize, market.bidSize, market.askSize)
-        price = IbkrPrice(market.last, market.bid, market.ask)
-        parameters = dict(datetime=market.time, price=price, size=size)
-        if isinstance(security, ib_async.Stock):
-            volatility = IbkrVolatility(market.histVolatility, market.impliedVolatility)
-            dividends = IbkrDividends(market.dividends.past12Months, market.dividends.next12Months)
-            snapshot = IbkrStockSnapshot(instrument=Enumerations.Instrument.STOCK, product=product, volatility=volatility, dividends=dividends, volume=market.volume, **parameters)
-        elif isinstance(security, ib_async.Option):
-            volume = {Enumerations.Right.CALL: market.callVolume, Enumerations.Right.PUT: market.putVolume}[product.right]
-            interest = {Enumerations.Right.CALL: market.callOpenInterest, Enumerations.Right.PUT: market.putOpenInterest}[product.right]
-            snapshot = IbkrOptionSnapshot(instrument=Enumerations.Instrument.OPTION, product=product, volume=volume, interest=interest, **parameters)
-        else: raise TypeError(type(security))
-        return snapshot
+        return self.snapshot(security, market)
+
+    @TypeDispatcher(locator=0)
+    def snapshot(self, security, market): raise TypeError(type(security))
+
+    @snapshot.register(ib_async.Stock)
+    def _(self, security, market):
+        instrument = Enumerations.Instrument.STOCK
+        datetime = pd.to_datetime(market.time, utc=True)
+        ticker = str(security.symbol).upper()
+        product = IbkrStock(ticker=ticker)
+        size = IbkrSize(int(market.lastSize), int(market.bidSize), int(market.askSize))
+        price = IbkrPrice(float(market.last), float(market.bid), float(market.ask))
+        volatility = IbkrVolatility(float(market.histVolatility), float(market.impliedVolatility))
+        dividends = IbkrDividends(float(market.dividends.past12Months), float(market.dividends.next12Months))
+        parameters = dict(datetime=datetime, instrument=instrument, product=product, size=size, price=price, volatility=volatility, dividends=dividends)
+        return IbkrStockSnapshot(**parameters)
+
+    @snapshot.register(ib_async.Option)
+    def _(self, security, market):
+        instrument = Enumerations.Instrument.OPTION
+        datetime = pd.to_datetime(market.time, utc=True)
+        ticker = str(security.symbol).upper()
+        expire = Datetime.strptime(security.lastTradeDateOrContractMonth, "%Y%m%d").date()
+        right = {str(right).upper()[right]: right for right in Enumerations.Right}[security.right]
+        strike = float(security.strike)
+        symbol = Querys.Symbol(ticker)
+        product = IbkrOption(ticker=ticker, expire=expire, right=right, strike=strike)
+        size = IbkrSize(int(market.lastSize), int(market.bidSize), int(market.askSize))
+        price = IbkrPrice(float(market.last), float(market.bid), float(market.ask))
+        with IbkrSubscription(self.source, product=symbol) as subscription: underlying = subscription[symbol]
+        parameters = dict(datetime=datetime, instrument=instrument, product=product, size=size, price=price, underlying=underlying)
+        return IbkrOptionSnapshot(**parameters)
 
     @property
     def products(self): return self.__products
@@ -356,21 +425,42 @@ class IbkrPage(WebSOCKPage):
         records = self.source.connection.reqHistoricalTicks(security, **parameters)
         return records
 
-    def spot(self, *args, securities, **kwargs):
-        markets = self.source.connection.reqTickers(*securities)
-        records = list()
-        for market in markets:
-            if market.contract.secType == "STK":
-                product = {"ticker": market.contract.symbol}
-            elif market.contract.secType == "OPT":
-                product = {"ticker": market.contract.symbol, "expire": market.contract.lastTradeDateOrContractMonth, "strike": market.contract.strike, "right": market.contract.right}
-            else: raise ValueError(market.contract.secType)
-            timing = {"time": market.time}
-            trade = {"price": market.last, "size": market.lastSize}
-            quote = {"priceBid": market.bid, "priceAsk": market.ask, "sizeBid": market.bidSize, "sizeAsk": market.askSize}
-            record = product | timing | quote | trade
-            records.append(record)
-        return records
+    # @ValueDispatcher(locator="instrument")
+    # def spot(self, *args, instrument, **kwargs): raise ValueError(instrument)
+    #
+    # @spot.register(Enumerations.Instrument.STOCK)
+    # def _(self, *args, securities, **kwargs):
+    #     stocks = self.source.connection.reqTickers(*securities)
+    #     records = list()
+    #     for stock in stocks:
+    #         product = {"ticker": stock.contract.symbol}
+    #         timing = {"time": stock.time}
+    #         trade = {"price": stock.last, "size": stock.lastSize}
+    #         quote = {"priceBid": stock.bid, "priceAsk": stock.ask, "sizeBid": stock.bidSize, "sizeAsk": stock.askSize}
+    #         record = product | timing | quote | trade
+    #         records.append(record)
+    #     return records
+    #
+    # @spot.register(Enumerations.Instrument.OPTION)
+    # def _(self, *args, products, securities, **kwargs):
+    #     symbols = list(map(Querys.Symbol, {product.ticker for product in products}))
+    #     with IbkrSubscription(self.source, products=symbols) as subscription:
+    #         options = self.source.connection.reqTickers(*securities)
+    #         records = list()
+    #         for option in options:
+    #             product = {"ticker": option.contract.symbol, "expire": option.contract.lastTradeDateOrContractMonth, "strike": option.contract.strike, "right": option.contract.right}
+    #             timing = {"time": option.time}
+    #             trade = {"price": option.last, "size": option.lastSize}
+    #             quote = {"priceBid": option.bid, "priceAsk": option.ask, "sizeBid": option.bidSize, "sizeAsk": option.askSize}
+    #             symbol = Querys.Symbol(product[option.contract.symbol])
+    #             stock = subscription[symbol]
+    #             underlying = (stock.price.bid + stock.price.ask) / 2
+    #             volatility = stock.volatility.implied
+    #             dividends = np.log1p(stock.dividends.predicted / underlying)
+    #             underlying = {"underlying": underlying, "volatility": volatility, "dividend": dividends}
+    #             record = product | timing | quote | trade | underlying | dividends
+    #             records.append(record)
+    #         return records
 
     @staticmethod
     def parse(dataframe, *args, **kwargs):
