@@ -8,7 +8,7 @@ Created on Fri Oct 16 2026
 """
 
 import pandas as pd
-from abc import ABC, abstractmethod
+from abc import ABC
 
 from ibkr.website import IbkrPage, IbkrStream
 from finance.console import LoggingDecorators, LoggingSizing
@@ -19,12 +19,12 @@ from support.pipeline import Pipelines
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["IbkrStockSpotDownloader", "IbkrOptionSpotDownloader"]
+__all__ = ["IbkrStockSpotsDownloader", "IbkrOptionSpotsDownloader"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class IbkrSpotPage(IbkrPage, ABC, namespace={"instrument": None}, metaclass=NamespaceMeta):
+class IbkrSpotsPage(IbkrPage, ABC, namespace={"instrument": None}, metaclass=NamespaceMeta):
     def __init__(self, *args, instrument, **kwargs):
         super().__init__(*args, **kwargs)
         self.__instrument = instrument
@@ -34,25 +34,28 @@ class IbkrSpotPage(IbkrPage, ABC, namespace={"instrument": None}, metaclass=Name
         qualified = [security for security in securities if bool(security.conId)]
         unqualified = [security for security in securities if not bool(security.conId)]
         if unqualified: qualified.extend(self.source.qualify(unqualified))
-        spot = self.execute(products=products, securities=qualified)
-        return spot
+        spots = self.execute(securities=qualified)
+        return spots
 
     def execute(self, *args, **kwargs):
-        spot = self.spot(*args, instrument=self.instrument, **kwargs)
-        spot = pd.DataFrame.from_records(spot)
-        return spot
+        spots = self.generator(*args, **kwargs)
+        spots = pd.concat(list(spots), axis=0, ignore_index=True)
+        return spots
 
-    @abstractmethod
-    def execute(self, *args, **kwargs): pass
+    def generator(self, *args, securities, **kwargs):
+        for security in securities:
+            spot = self.spot(*args, security=security, instrument=self.instrument, **kwargs)
+            yield spot
+
     @property
     def instrument(self): return self.__instrument
 
 
-class IbkrStockSpotPage(IbkrSpotPage, instrument=Enumerations.Instrument.STOCK): pass
-class IbkrOptionSpotPage(IbkrSpotPage, instrument=Enumerations.Instrument.OPTION): pass
+class IbkrStockSpotsPage(IbkrSpotsPage, instrument=Enumerations.Instrument.STOCK): pass
+class IbkrOptionSpotsPage(IbkrSpotsPage, instrument=Enumerations.Instrument.OPTION): pass
 
 
-class IbkrSpotDownloader(IbkrStream):
+class IbkrSpotsDownloader(IbkrStream):
     @Pipelines.Function(locator=0)
     @LoggingDecorators.Function(Collection[Variables.Ticker], Collection[Variables.Expire], sizing=LoggingSizing.OUTLET, title="Downloaded")
     def __call__(self, products, /, **kwargs):
@@ -72,8 +75,8 @@ class IbkrSpotDownloader(IbkrStream):
             yield bars
 
 
-class IbkrStockSpotDownloader(IbkrSpotDownloader, page=IbkrStockSpotPage, instrument=Enumerations.Instrument.STOCK): pass
-class IbkrOptionSpotDownloader(IbkrSpotDownloader, page=IbkrOptionSpotPage, instrument=Enumerations.Instrument.OPTION): pass
+class IbkrStockSpotsDownloader(IbkrSpotsDownloader, page=IbkrStockSpotsPage, instrument=Enumerations.Instrument.STOCK): pass
+class IbkrOptionSpotsDownloader(IbkrSpotsDownloader, page=IbkrOptionSpotsPage, instrument=Enumerations.Instrument.OPTION): pass
 
 
 

@@ -9,15 +9,14 @@ Created on Sun Oct 4 2026
 
 import pandas as pd
 from abc import ABC
-from ib_async import util
-from itertools import chain
 from zoneinfo import ZoneInfo
 from datetime import time as Time
 from datetime import datetime as Datetime
 from datetime import timezone as Timezone
 from datetime import timedelta as Timedelta
 
-from ibkr.website import IbkrPage, IbkrStream, IbkrSubscription
+from ibkr.website import IbkrPage, IbkrStream
+from ibkr.subscription import IbkrSubscription
 from finance.console import LoggingDecorators, LoggingSizing
 from finance.variables import Collection, Variables
 from finance.enumerations import Enumerations
@@ -40,25 +39,25 @@ class IbkrTicksPage(IbkrPage, ABC):
         try: security = product["security"]
         except KeyError: security = self.source.security(product)
         if not bool(security.conId): security = self.source.qualify(security)
-        parameters = dict(product=product, security=security, price=price, frequency=frequency, history=history, sparse=sparse)
+        parameters = dict(security=security, price=price, frequency=frequency, history=history, sparse=sparse)
         ticks = self.execute(*args, **parameters, **kwargs)
         return ticks
 
     def execute(self, *args, **kwargs):
         ticks = self.generator(*args, **kwargs)
-        ticks = list(chain.from_iterable(ticks))
-        ticks = util.df(ticks)
-        ticks = self.parse(ticks, *args, **kwargs)
+        ticks = pd.concat(list(ticks), axis=0, ignore_index=True)
         return ticks
 
-    def generator(self, *args, history, **kwargs):
-        stop = history.stop
-        while stop > history.start:
-            ticks = self.ticks(*args, stop=stop, **kwargs)
-            if not ticks: break
-            yield ticks
-            stop = min(tick.time for tick in ticks)
-            stop = stop - Timedelta(seconds=1)
+    def generator(self, *args, security, history, **kwargs):
+        symbol = Querys.Symbol(str(security.symbol).upper())
+        with IbkrSubscription(self.source, product=symbol) as subscription:
+            stop = history.stop
+            while stop > history.start:
+                ticks = self.ticks(*args, stop=stop, **kwargs)
+                if not ticks: break
+                yield ticks
+                stop = min(tick.time for tick in ticks)
+                stop = stop - Timedelta(seconds=1)
 
 
 class IbkrStockTicksPage(IbkrTicksPage): pass

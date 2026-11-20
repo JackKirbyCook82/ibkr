@@ -9,15 +9,13 @@ Created on Sun Oct 4 2026
 
 import pandas as pd
 from abc import ABC
-
-from ib_async import util
-from itertools import chain
 from zoneinfo import ZoneInfo
 from datetime import time as Time
 from datetime import timezone as Timezone
 from datetime import datetime as Datetime
 
-from ibkr.website import IbkrPage, IbkrStream, IbkrSubscription
+from ibkr.website import IbkrPage, IbkrStream
+from ibkr.subscription import IbkrSubscription
 from finance.console import LoggingDecorators, LoggingSizing
 from finance.variables import Collection, Variables
 from finance.enumerations import Enumerations
@@ -41,27 +39,25 @@ class IbkrBarsPage(IbkrPage, ABC):
         try: security = product["security"]
         except KeyError: security = self.source.security(product)
         if not bool(security.conId): security = self.source.qualify(security)
-        parameters = dict(product=product, security=security, price=price, frequency=frequency, history=history, duration=duration)
+        parameters = dict(security=security, price=price, frequency=frequency, history=history, duration=duration)
         bars = self.execute(*args, **parameters, **kwargs)
         return bars
 
     def execute(self, *args, **kwargs):
         bars = self.generator(*args, **kwargs)
-        bars = list(chain.from_iterable(bars))
-        bars = util.df(bars)
-        bars = self.parse(bars, *args, **kwargs)
+        bars = pd.concat(list(bars), axis=0, ignore_index=True)
         return bars
 
-    def generator(self, *args, history, **kwargs):
-        stop = history.stop
-        bars = self.bars(*args, stop=stop, **kwargs)
-        yield bars
+    def generator(self, *args, security, history, **kwargs):
+        symbol = Querys.Symbol(str(security.symbol).upper())
+        with IbkrSubscription(self.source, product=symbol) as subscription:
+            stop = history.stop
+            bars = self.bars(*args, stop=stop, **kwargs)
+            yield bars
 
 
 class IbkrStockBarsPage(IbkrBarsPage): pass
-class IbkrOptionBarsPage(IbkrBarsPage):
-    def bars(self, *args, **kwargs):
-        return super().bars(*args, **kwargs)
+class IbkrOptionBarsPage(IbkrBarsPage): pass
 
 
 class IbkrBarsDownloader(IbkrStream):
