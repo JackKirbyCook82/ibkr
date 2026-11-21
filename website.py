@@ -17,10 +17,12 @@ from types import SimpleNamespace
 from datetime import datetime as Datetime
 
 from finance.enumerations import Enumerations
+from finance.querys import Querys
+from ibkr.subscription import IbkrSubscription
 from webscraping.webpages import WebSOCKPage
+from support.meta import CollectionMeta, NamespaceMeta
 from support.dispatchers import ValueDispatcher
 from support.mixins import LoggingMixin
-from support.meta import CollectionMeta, NamespaceMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -95,28 +97,40 @@ class IbkrPage(WebSOCKPage):
 
     @spot.register(Enumerations.Instrument.STOCK)
     def _(self, *args, security, **kwargs):
+        symbol = Querys.Symbol(str(security.symbol).upper())
+        with IbkrSubscription(self.source, product=symbol) as subscription:
+            snapshot = subscription[symbol]
+            underlying = (snapshot.price.bid + snapshot.price.ask) / 2
+            volatility = snapshot.volatility.implied
+            dividends = np.log1p(snapshot.dividends.predicted / underlying)
+            parameters = {"volatility": volatility, "dividends": dividends}
         market = self.source.connection.reqTickers(security)
         security = market.contract
         instrument = Enumerations.Instrument.STOCK
         datetime = pd.to_datetime(market.time, utc=True)
+        parameters = {"instrument": instrument, "datetime": datetime} | parameters
         ticker = str(security.symbol).upper()
         product = {"ticker": ticker}
         trade = {"price": market.last, "size": market.lastSize}
         quote = {"bid": market.bid, "ask": market.ask, "demand": market.bidSize, "supply": market.askSize}
-        price = (market.bid + market.ask) / 2
-        volatility = float(market.impliedVolatility)
-        dividends = np.log1p(float(market.dividends.next12Months) / price)
-        underlying = {"volatility": volatility, "dividends": dividends}
-        records = {"instrument": instrument, "datetime": datetime} | product | trade | quote | underlying
+        records = product | trade | quote | parameters
         dataframe = pd.DataFrame.from_records([records])
         return dataframe
 
     @spot.register(Enumerations.Instrument.OPTION)
     def _(self, *args, security, **kwargs):
+        symbol = Querys.Symbol(str(security.symbol).upper())
+        with IbkrSubscription(self.source, product=symbol) as subscription:
+            snapshot = subscription[symbol]
+            underlying = (snapshot.price.bid + snapshot.price.ask) / 2
+            volatility = snapshot.volatility.implied
+            dividends = np.log1p(snapshot.dividends.predicted / underlying)
+            parameters = {"underlying": underlying, "volatility": volatility, "dividends": dividends}
         market = self.source.connection.reqTickers(security)
         security = market.contract
         instrument = Enumerations.Instrument.OPTION
         datetime = pd.to_datetime(market.time, utc=True)
+        parameters = {"instrument": instrument, "datetime": datetime} | parameters
         ticker = str(security.symbol).upper()
         expire = Datetime.strptime(security.lastTradeDateOrContractMonth, "%Y%m%d").date()
         right = {str(right).upper()[right]: right for right in Enumerations.Right}[security.right]
@@ -124,13 +138,7 @@ class IbkrPage(WebSOCKPage):
         product = {"ticker": ticker, "expire": expire, "right": right, "strike": strike}
         trade = {"price": market.last, "size": market.lastSize}
         quote = {"bid": market.bid, "ask": market.ask, "demand": market.bidSize, "supply": market.askSize}
-
-#        underlying = (market.bid + market.ask) / 2
-#        volatility = float(market.impliedVolatility)
-#        dividends = np.log1p(float(market.dividends.next12Months) / underlying)
-#        underlying = {"underlying": underlying, "volatility": volatility, "dividends": dividends}
-
-        records = {"instrument": instrument, "datetime": datetime} | product | trade | quote
+        records = product | trade | quote | parameters
         dataframe = pd.DataFrame.from_records([records])
         return dataframe
 
